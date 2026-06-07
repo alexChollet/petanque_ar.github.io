@@ -347,8 +347,10 @@ async function startDebug() {
     const resp = await fetch(`${ghBase}/debugPics/manifest.json?t=${Date.now()}`);
     if (!resp.ok) throw new Error('manifest.json introuvable dans debugPics/');
     const manifest = await resp.json();
+    console.log('Manifest loaded:', manifest);
     if (!manifest.images || !manifest.images.length) throw new Error('Aucune image dans le manifest');
     images = manifest.images.map(name => ({ name, url: `${ghBase}/debugPics/${name}` }));
+    console.log('Images à charger:', images.map(i => i.url));
   } catch(e) {
     showToast('Erreur manifest : ' + e.message);
     return;
@@ -377,15 +379,22 @@ function loadImage(idx) {
   img.onload = () => {
     resizeCanvas();
     setBadge('Analyse…', 'b-analyzing');
-    // Lancer l'analyse automatiquement
     autoAnalyze();
   };
   img.onerror = () => {
     setBadge('Erreur', 'b-idle');
-    showToast('Impossible de charger l\'image — vérifie le manifest et le nom du fichier.');
-    document.getElementById('dbg-ball-list').innerHTML = '<div id="dbg-empty" style="color:var(--red)">Erreur de chargement</div>';
+    const url = images[idx].url;
+    console.error('Image load error:', url);
+    showToast('Erreur chargement : ' + url.split('/').pop());
+    document.getElementById('dbg-ball-list').innerHTML =
+      `<div id="dbg-empty" style="color:var(--red);font-size:11px;line-height:1.6">
+        Fichier introuvable :<br>
+        <span style="font-family:monospace;font-size:10px;color:var(--text2)">${url.split('/').pop()}</span><br><br>
+        Vérifie que ce nom est exact dans GitHub<br>(attention aux majuscules : .PNG ≠ .png)
+      </div>`;
   };
   img.src = images[idx].url + '?t=' + Date.now();
+  console.log('Loading image:', images[idx].url);
 
   document.getElementById('img-counter').textContent = `${idx+1} / ${images.length}`;
   document.getElementById('prev-btn').disabled = (idx === 0);
@@ -486,9 +495,10 @@ Si rien : { "found": false, "note": "..." }`}
 
 // ══ OPENCV DETECTION ══
 function imageToCanvas() {
-  const isPng = images[curIdx]?.name.toLowerCase().endsWith('.png');
+  const nameLower = (images[curIdx]?.name || '').toLowerCase();
+  const isPng = nameLower.endsWith('.png');
   const mimeType = isPng ? 'image/png' : 'image/jpeg';
-  const quality  = isPng ? 1.0 : 0.8;
+  const quality  = isPng ? 1.0 : 0.85;
   const tmp = document.createElement('canvas');
   tmp.width  = img.naturalWidth;
   tmp.height = img.naturalHeight;
