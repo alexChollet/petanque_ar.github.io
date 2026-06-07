@@ -193,6 +193,8 @@
       <input type="password" id="claude-key" placeholder="gsk_...">
     </div>
 
+    <div id="cfg-badge" style="display:none;width:100%;background:rgba(29,158,117,0.1);border:0.5px solid rgba(29,158,117,0.3);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;font-size:12px;color:#1D9E75;font-weight:500;"></div>
+
     <button class="btn-primary" onclick="startDebug()">Charger les images →</button>
   </div>
 
@@ -291,30 +293,65 @@ const canvas = document.getElementById('debug-canvas');
 const ctx    = canvas.getContext('2d');
 
 // ══ SETUP ══
-window.addEventListener('load', () => {
-  const s = JSON.parse(localStorage.getItem(SETUP_KEY) || '{}');
-  if (s.ghBase)    document.getElementById('gh-url').value    = s.ghBase;
-  if (s.ghToken)   document.getElementById('gh-token').value  = s.ghToken;
-  if (s.ghRepo)    document.getElementById('gh-repo').value   = s.ghRepo;
-  if (s.claudeKey) document.getElementById('claude-key').value= s.claudeKey;
+window.addEventListener('load', async () => {
   feedbacks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
   updateStats();
+
+  // Tente de charger config.json depuis le dossier parent
+  try {
+    const resp = await fetch('config.json?t=' + Date.now());
+    if (resp.ok) {
+      const cfg = await resp.json();
+      window._cfg = cfg;
+      const isConfigured = cfg.groq_api_key && !cfg.groq_api_key.startsWith('REMPLACE');
+
+      // Pré-remplir les champs
+      if (cfg.github_pages_url) document.getElementById('gh-url').value   = cfg.github_pages_url;
+      if (cfg.github_token)     document.getElementById('gh-token').value = cfg.github_token;
+      if (cfg.github_repo)      document.getElementById('gh-repo').value  = cfg.github_repo;
+      if (cfg.groq_api_key)     document.getElementById('claude-key').value = cfg.groq_api_key;
+
+      if (isConfigured) {
+        // Tout est configuré — lancer directement sans passer par l'écran de setup
+        document.getElementById('cfg-badge').style.display = 'flex';
+        document.getElementById('cfg-badge').textContent   = '✓ Config chargée depuis GitHub';
+      }
+    }
+  } catch(e) {
+    // Pas de config.json — fallback localStorage
+    const s = JSON.parse(localStorage.getItem(SETUP_KEY) || '{}');
+    if (s.ghBase)    document.getElementById('gh-url').value     = s.ghBase;
+    if (s.ghToken)   document.getElementById('gh-token').value   = s.ghToken;
+    if (s.ghRepo)    document.getElementById('gh-repo').value    = s.ghRepo;
+    if (s.claudeKey) document.getElementById('claude-key').value = s.claudeKey;
+  }
 });
 
 async function startDebug() {
-  ghBase    = document.getElementById('gh-url').value.trim().replace(/\/$/, '');
-  ghToken   = document.getElementById('gh-token').value.trim();
-  ghRepo    = document.getElementById('gh-repo').value.trim();
-  claudeKey = document.getElementById('claude-key').value.trim();
+  const cfg = window._cfg || {};
 
-  if (!ghBase) { showToast('Entre l\'URL de ton GitHub Pages.'); return; }
+  // Priorité config.json > champs saisis
+  ghBase    = (cfg.github_pages_url && !cfg.github_pages_url.startsWith('https://TON'))
+                ? cfg.github_pages_url
+                : document.getElementById('gh-url').value.trim().replace(/\/$/, '');
+  ghToken   = (cfg.github_token && !cfg.github_token.startsWith('ghp_REMPLACE'))
+                ? cfg.github_token
+                : document.getElementById('gh-token').value.trim();
+  ghRepo    = (cfg.github_repo && !cfg.github_repo.startsWith('TON_'))
+                ? cfg.github_repo
+                : document.getElementById('gh-repo').value.trim();
+  claudeKey = (cfg.groq_api_key && !cfg.groq_api_key.startsWith('gsk_REMPLACE'))
+                ? cfg.groq_api_key
+                : document.getElementById('claude-key').value.trim();
+
+  if (!ghBase) { showToast('URL GitHub Pages manquante — vérifie config.json'); return; }
 
   localStorage.setItem(SETUP_KEY, JSON.stringify({ ghBase, ghToken, ghRepo, claudeKey }));
 
   // Load manifest
   try {
     const resp = await fetch(`${ghBase}/debugPics/manifest.json?t=${Date.now()}`);
-    if (!resp.ok) throw new Error('manifest.json introuvable');
+    if (!resp.ok) throw new Error('manifest.json introuvable dans debugPics/');
     const manifest = await resp.json();
     if (!manifest.images || !manifest.images.length) throw new Error('Aucune image dans le manifest');
     images = manifest.images.map(name => ({ name, url: `${ghBase}/debugPics/${name}` }));
