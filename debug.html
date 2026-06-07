@@ -382,7 +382,9 @@ async function analyzeGroq() {
   showLoader(true);
 
   const tmp = imageToCanvas();
-  const b64 = tmp.toDataURL('image/jpeg', 0.8).split(',')[1];
+  const mime = tmp._mime || 'image/jpeg';
+  const b64  = tmp.toDataURL(mime, tmp._quality || 0.8).split(',')[1];
+  const dataUrl = `data:${mime};base64,${b64}`;
 
   try {
     const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -397,7 +399,7 @@ async function analyzeGroq() {
         messages:[{
           role:'user',
           content:[
-            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`}},
+            {type:'image_url', image_url:{url: dataUrl}},
             {type:'text',text:`Analyse cette image de pétanque. Identifie toutes les boules et le cochonnet.
 Réponds UNIQUEMENT en JSON valide sans texte ni balises.
 {
@@ -441,10 +443,15 @@ async function analyzeBoth() {
 
 // ══ OPENCV DETECTION ══
 function imageToCanvas() {
+  const isPng = images[curIdx]?.name.toLowerCase().endsWith('.png');
+  const mimeType = isPng ? 'image/png' : 'image/jpeg';
+  const quality  = isPng ? 1.0 : 0.8;
   const tmp = document.createElement('canvas');
   tmp.width  = img.naturalWidth;
   tmp.height = img.naturalHeight;
   tmp.getContext('2d').drawImage(img, 0, 0);
+  tmp._mime = mimeType;
+  tmp._quality = quality;
   return tmp;
 }
 
