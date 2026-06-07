@@ -174,13 +174,17 @@
     </div>
 
     <div class="card" id="api-card">
-      <h3>Clé API Claude <span style="color:var(--text3);font-size:9px;font-weight:400;text-transform:none">(requise pour IA)</span></h3>
-      <span class="field-lbl">Clé API Anthropic</span>
-      <input type="password" id="api-input" placeholder="sk-ant-api03-..." autocomplete="off" spellcheck="false">
-      <p class="field-hint">Obtiens ta clé sur <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> → API Keys<br>Elle est sauvegardée uniquement sur ton appareil.</p>
+      <h3>Clé API Groq <span style="color:var(--text3);font-size:9px;font-weight:400;text-transform:none">(requise pour IA — gratuit)</span></h3>
+      <span class="field-lbl">Clé API Groq</span>
+      <input type="password" id="api-input" placeholder="gsk_..." autocomplete="off" spellcheck="false">
+      <p class="field-hint">Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a> → API Keys → Create<br>Elle est sauvegardée uniquement sur ton appareil.</p>
     </div>
 
     <button id="start-btn" onclick="startApp()">Activer la caméra →</button>
+
+    <a href="debug.html" style="font-size:11px;color:var(--text3);text-decoration:none;margin-bottom:8px;display:flex;align-items:center;gap:5px;transition:color 0.15s" onmouseover="this.style.color='var(--text2)'" onmouseout="this.style.color='var(--text3)'">
+      🔧 Mode debug
+    </a>
   </div>
 
   <!-- ══ CAMERA SCREEN ══ -->
@@ -228,7 +232,7 @@
         <div id="act-row">
           <button class="abtn" id="live-btn"    onclick="toggleLive()">▶ Live</button>
           <button class="abtn" id="capture-btn" onclick="captureNow()">📷 Capturer</button>
-          <button class="abtn" id="ai-btn"      onclick="forceAI()">🤖 Claude</button>
+          <button class="abtn" id="ai-btn"      onclick="forceAI()">⚡ Groq</button>
         </div>
       </div>
       <div id="results">
@@ -248,7 +252,7 @@
 <script>
 // ══ CONFIG ══
 const COLORS = ['#3D8BFF','#E24B4A','#1D9E75','#D4537E','#E8A020','#7F77DD','#BA7517'];
-const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
+const GROQ_API = 'https://api.groq.com/openai/v1/chat/completions';
 const MODE_DESCS = {
   hybrid: 'OpenCV détecte les cercles en local. Si la confiance est faible, Claude IA prend le relais automatiquement.',
   cv:     'Détection de cercles 100% locale, offline. Rapide mais sensible aux conditions de lumière et reflets.',
@@ -295,7 +299,7 @@ function updateFilter() {
 // ══ START ══
 async function startApp() {
   apiKey = document.getElementById('api-input').value.trim();
-  if (apiKey) localStorage.setItem('ptq_key', apiKey);
+  if (apiKey) localStorage.setItem('ptq_groq_key', apiKey);
   if (appMode === 'ai' && !apiKey) { showToast('Entre une clé Claude API pour utiliser le mode IA.'); return; }
 
   try {
@@ -534,31 +538,29 @@ function posdesc(x,y){
   return `Boule ${v} ${h}`;
 }
 
-// ══ CLAUDE AI ══
+// ══ GROQ AI ══
 async function runAI(freeze=false) {
-  if(!apiKey){showToast('Aucune clé Claude configurée. Retourne au menu pour en ajouter une.');return;}
-  isBusy=true; setBadge('Claude…','b-ai'); showLoader(true);
+  if(!apiKey){showToast('Aucune clé Groq configurée. Retourne au menu pour en ajouter une.');return;}
+  isBusy=true; setBadge('Groq…','b-ai'); showLoader(true);
 
   // Snapshot BEFORE freezing
   const tmp = getSnapshot();
   const b64 = tmp.toDataURL('image/jpeg',0.78).split(',')[1];
 
   try {
-    const resp = await fetch(CLAUDE_API, {
+    const resp = await fetch(GROQ_API, {
       method:'POST',
       headers:{
         'Content-Type':'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true'
+        'Authorization': 'Bearer ' + apiKey
       },
       body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        model:'meta-llama/llama-4-scout-17b-16e-instruct',
         max_tokens:700,
         messages:[{
           role:'user',
           content:[
-            {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
+            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`}},
             {type:'text',text:`Tu analyses une image d'une partie de pétanque pour déterminer quelles boules sont les plus proches du cochonnet.
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans balises markdown.
 Format exact :
@@ -579,21 +581,21 @@ Si tu ne vois pas de boules ou de cochonnet : { "found": false, "note": "ce que 
     });
 
     const json = await resp.json();
-    if(json.error) throw new Error(json.error.message);
-    const raw = json.content.map(i=>i.text||'').join('').replace(/```json|```/g,'').trim();
+    if(json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+    const raw = json.choices[0].message.content.replace(/```json|```/g,'').trim();
     const data = JSON.parse(raw);
     const result = {
       found: data.found,
       cochonnet: data.cochonnet||null,
       balls: (data.balls||[]).map(b=>({...b,dist:null})),
-      confidence:0.93, note:data.note||''
+      confidence:0.90, note:data.note||''
     };
     applyResult(result,'ai');
-    setConfBar(0.93);
+    setConfBar(0.90);
     if(freeze) freezeFrame();
 
   } catch(e) {
-    showToast('Erreur Claude : '+e.message);
+    showToast('Erreur Groq : '+e.message);
     setBadge(liveMode?'Live':'Prêt', liveMode?'b-live':'b-idle');
   }
 
@@ -685,7 +687,7 @@ function showLoader(v){document.getElementById('loader').style.display=v?'flex':
 function showToast(msg,info=false){const t=document.getElementById('toast');t.textContent=msg;t.className=info?'info':'';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',4000);}
 
 window.addEventListener('load',()=>{
-  const k=localStorage.getItem('ptq_key');
+  const k=localStorage.getItem('ptq_groq_key');
   if(k) document.getElementById('api-input').value=k;
 });
 </script>
