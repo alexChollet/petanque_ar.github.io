@@ -189,8 +189,8 @@
 
     <div class="card">
       <h3>Clés API</h3>
-      <span class="field-lbl">Clé Claude (analyse IA)</span>
-      <input type="password" id="claude-key" placeholder="sk-ant-api03-...">
+      <span class="field-lbl">Clé Groq (analyse IA — gratuit)</span>
+      <input type="password" id="claude-key" placeholder="gsk_...">
     </div>
 
     <button class="btn-primary" onclick="startDebug()">Charger les images →</button>
@@ -216,7 +216,7 @@
     <div id="dbg-bottom">
       <div id="dbg-actions">
         <button class="abtn" onclick="analyzeCV()">📐 Vision</button>
-        <button class="abtn gold" onclick="analyzeClaude()">🤖 Claude</button>
+        <button class="abtn gold" onclick="analyzeGroq()">⚡ Groq</button>
         <button class="abtn" onclick="analyzeBoth()">🔀 Les deux</button>
         <button class="abtn" onclick="saveCurrent()" id="save-btn" title="Sauvegarder depuis caméra">📷 +</button>
       </div>
@@ -370,36 +370,34 @@ async function analyzeCV() {
     const sens = 5;
     const result = detectCircles(tmp, sens);
     if (result) { curResult = result; renderResults(result, 'cv'); drawOverlay(result); setBadge('Vision', 'b-cv'); }
-    else { showToast('Aucun cercle détecté. Essaie Claude.'); setBadge('Prêt','b-idle'); }
+    else { showToast('Aucun cercle détecté. Essaie Groq.'); setBadge('Prêt','b-idle'); }
   } catch(e) { showToast('Erreur CV : '+e.message); setBadge('Prêt','b-idle'); }
 
   showLoader(false);
 }
 
-async function analyzeClaude() {
-  if (!claudeKey) { showToast('Aucune clé Claude configurée.'); return; }
-  setBadge('Claude…', 'b-analyzing');
+async function analyzeGroq() {
+  if (!claudeKey) { showToast('Aucune clé Groq configurée.'); return; }
+  setBadge('Groq…', 'b-analyzing');
   showLoader(true);
 
   const tmp = imageToCanvas();
   const b64 = tmp.toDataURL('image/jpeg', 0.8).split(',')[1];
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method:'POST',
       headers:{
         'Content-Type':'application/json',
-        'x-api-key': claudeKey,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true'
+        'Authorization': 'Bearer ' + claudeKey
       },
       body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        model:'meta-llama/llama-4-scout-17b-16e-instruct',
         max_tokens:700,
         messages:[{
           role:'user',
           content:[
-            {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
+            {type:'image_url', image_url:{url:`data:image/jpeg;base64,${b64}`}},
             {type:'text',text:`Analyse cette image de pétanque. Identifie toutes les boules et le cochonnet.
 Réponds UNIQUEMENT en JSON valide sans texte ni balises.
 {
@@ -418,15 +416,15 @@ Si rien : { "found": false, "note": "..." }`}
       })
     });
     const json = await resp.json();
-    if (json.error) throw new Error(json.error.message);
-    const raw = json.content.map(i=>i.text||'').join('').replace(/```json|```/g,'').trim();
+    if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+    const raw = json.choices[0].message.content.replace(/```json|```/g,'').trim();
     const data = JSON.parse(raw);
-    const result = { found:data.found, cochonnet:data.cochonnet||null, balls:data.balls||[], confidence:0.92, note:data.note||'' };
+    const result = { found:data.found, cochonnet:data.cochonnet||null, balls:data.balls||[], confidence:0.90, note:data.note||'' };
     curResult = result;
     renderResults(result, 'ai');
     drawOverlay(result);
-    setBadge('Claude', 'b-ai');
-  } catch(e) { showToast('Erreur Claude : '+e.message); setBadge('Prêt','b-idle'); }
+    setBadge('Groq', 'b-ai');
+  } catch(e) { showToast('Erreur Groq : '+e.message); setBadge('Prêt','b-idle'); }
 
   showLoader(false);
 }
@@ -436,8 +434,8 @@ async function analyzeBoth() {
   const cvResult = curResult;
   const cvConf   = cvResult ? cvResult.confidence : 0;
   if (cvConf < 0.55 && claudeKey) {
-    showToast('Vision insuffisante (conf: ' + Math.round(cvConf*100) + '%) — passage à Claude', true);
-    await analyzeClaude();
+    showToast('Vision insuffisante (conf: ' + Math.round(cvConf*100) + '%) — passage à Groq', true);
+    await analyzeGroq();
   }
 }
 
@@ -519,7 +517,7 @@ function renderResults(data, source) {
   const list = document.getElementById('dbg-ball-list');
   const tag  = document.getElementById('dbg-source-tag');
   tag.style.display='inline';
-  tag.textContent = source==='cv' ? '📐 Vision locale' : '🤖 Claude IA';
+  tag.textContent = source==='cv' ? '📐 Vision locale' : '⚡ Groq IA';
   tag.className   = 'source-tag '+(source==='cv'?'src-cv':'src-ai');
   if(!data.found||!data.balls||!data.balls.length){ list.innerHTML='<div id="dbg-empty" style="text-align:center;padding:10px 0;color:var(--text3);font-size:11px">'+(data.note||'Aucune boule détectée.')+'</div>'; return; }
   const sorted=[...data.balls].sort((a,b)=>a.rank-b.rank);
