@@ -180,13 +180,21 @@
       <p class="field-hint">Gratuit sur <a href="https://console.groq.com" target="_blank">console.groq.com</a> → API Keys → Create<br>Elle est sauvegardée uniquement sur ton appareil.</p>
     </div>
 
+    <div id="api-loaded-badge" style="display:none;width:100%;background:rgba(29,158,117,0.1);border:0.5px solid rgba(29,158,117,0.3);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;align-items:center;gap:8px;">
+      <span style="font-size:16px">✓</span>
+      <div>
+        <div style="font-size:12px;color:#1D9E75;font-weight:500">Config chargée depuis GitHub</div>
+        <div style="font-size:11px;color:var(--text3)">Toutes les clés sont configurées automatiquement</div>
+      </div>
+    </div>
+
     <button id="start-btn" onclick="startApp()">Activer la caméra →</button>
 
     <div style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-bottom:8px">
       <a href="debug.html" style="font-size:11px;color:var(--text3);text-decoration:none;display:flex;align-items:center;gap:4px;transition:color 0.15s" onmouseover="this.style.color='var(--text2)'" onmouseout="this.style.color='var(--text3)'">
         🔧 Mode debug
       </a>
-      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">v4.1</span>
+      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">v4.2</span>
     </div>
   </div>
 
@@ -301,9 +309,13 @@ function updateFilter() {
 
 // ══ START ══
 async function startApp() {
-  apiKey = document.getElementById('api-input').value.trim();
+  // Priorité : config.json > champ saisi > localStorage
+  const cfg = window._cfg || {};
+  apiKey = cfg.groq_api_key && !cfg.groq_api_key.startsWith('REMPLACE')
+    ? cfg.groq_api_key
+    : document.getElementById('api-input').value.trim() || localStorage.getItem('ptq_groq_key') || '';
   if (apiKey) localStorage.setItem('ptq_groq_key', apiKey);
-  if (appMode === 'ai' && !apiKey) { showToast('Entre une clé Claude API pour utiliser le mode IA.'); return; }
+  if (appMode === 'ai' && !apiKey) { showToast('Clé Groq manquante — remplis config.json ou le champ ci-dessus.'); return; }
 
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -710,9 +722,26 @@ function setConfBar(v){const f=document.getElementById('conf-fill');const p=Math
 function showLoader(v){document.getElementById('loader').style.display=v?'flex':'none';}
 function showToast(msg,info=false){const t=document.getElementById('toast');t.textContent=msg;t.className=info?'info':'';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',4000);}
 
-window.addEventListener('load',()=>{
-  const k=localStorage.getItem('ptq_groq_key');
-  if(k) document.getElementById('api-input').value=k;
+window.addEventListener('load', async () => {
+  // Tente de charger config.json depuis le même dossier
+  try {
+    const resp = await fetch('config.json?t=' + Date.now());
+    if (resp.ok) {
+      const cfg = await resp.json();
+      if (cfg.groq_api_key && !cfg.groq_api_key.startsWith('REMPLACE')) {
+        document.getElementById('api-input').value = cfg.groq_api_key;
+        // Pré-remplir et masquer la carte API si tout est configuré
+        document.getElementById('api-card').style.display = 'none';
+        document.getElementById('api-loaded-badge').style.display = 'flex';
+      }
+      // Stocker le config en mémoire pour usage dans l'app
+      window._cfg = cfg;
+    }
+  } catch(e) {
+    // Pas de config.json — mode manuel, on charge depuis localStorage
+    const k = localStorage.getItem('ptq_groq_key');
+    if (k) document.getElementById('api-input').value = k;
+  }
 });
 </script>
 </body>
