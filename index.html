@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Pétanque AR</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #E8A020; --gold-dim: rgba(232,160,32,0.2);
+      --blue: #3D8BFF; --red: #E24B4A; --green: #1D9E75;
+      --bg: #0c0c0d; --bg1: #141416; --bg2: #1c1c20;
+      --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.13);
+      --text: #f0f0f0; --text2: #888; --text3: #444;
+      --r: 12px; --rs: 8px;
+    }
+    html, body { height:100%; width:100%; background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; overflow:hidden; }
+
+    #app { display:flex; flex-direction:column; height:100dvh; width:100%; max-width:480px; margin:0 auto; position:relative; }
+
+    /* CAMERA */
+    #cam-zone { position:relative; flex:1; background:#000; overflow:hidden; min-height:0; }
+    #video { width:100%; height:100%; object-fit:cover; display:block; }
+    #overlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+
+    /* START SCREEN */
+    #start-screen {
+      position:absolute; inset:0; display:flex; flex-direction:column;
+      align-items:center; justify-content:flex-start; background:var(--bg);
+      z-index:20; padding:32px 24px; overflow-y:auto;
+    }
+    .s-icon { font-size:48px; margin:16px 0 12px; filter:drop-shadow(0 0 20px rgba(232,160,32,0.4)); }
+    .s-title { font-size:26px; font-weight:600; letter-spacing:-0.8px; margin-bottom:4px; }
+    .s-sub { font-size:12px; color:var(--text2); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:28px; }
+
+    .section-card {
+      width:100%; background:var(--bg1); border:0.5px solid var(--border2);
+      border-radius:var(--r); padding:16px; margin-bottom:12px;
+    }
+    .section-card h3 { font-size:11px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; }
+
+    .mode-row { display:flex; gap:8px; margin-bottom:10px; }
+    .mode-btn {
+      flex:1; padding:10px 6px; border-radius:var(--rs); border:0.5px solid var(--border2);
+      background:var(--bg2); color:var(--text2); font-size:12px; font-weight:500;
+      font-family:'DM Sans',sans-serif; cursor:pointer; text-align:center;
+      transition:all 0.15s; line-height:1.3;
+    }
+    .mode-btn.active { border-color:var(--gold); background:var(--gold-dim); color:var(--gold); }
+
+    .field-label { font-size:11px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:5px; display:block; }
+    input[type=password], input[type=text] {
+      width:100%; background:var(--bg2); border:0.5px solid var(--border2);
+      border-radius:var(--rs); padding:9px 12px; font-size:12px;
+      font-family:'DM Mono',monospace; color:var(--text); outline:none;
+      transition:border-color 0.2s; margin-bottom:6px;
+    }
+    input:focus { border-color:var(--gold); }
+    input::placeholder { color:var(--text3); }
+    .field-hint { font-size:11px; color:var(--text3); line-height:1.5; }
+    .field-hint a { color:var(--blue); text-decoration:none; }
+
+    .mode-desc { font-size:11px; color:var(--text3); line-height:1.5; margin-top:8px; padding-top:8px; border-top:0.5px solid var(--border); }
+
+    #start-btn {
+      width:100%; margin-top:4px; background:var(--gold); color:#000; border:none;
+      border-radius:40px; padding:14px; font-size:15px; font-weight:600;
+      font-family:'DM Sans',sans-serif; cursor:pointer; transition:opacity 0.15s, transform 0.1s;
+      margin-bottom:24px;
+    }
+    #start-btn:active { transform:scale(0.97); }
+
+    /* HUD */
+    #hud { position:absolute; top:0; left:0; right:0; display:none; justify-content:space-between; align-items:center; padding:12px 14px; background:linear-gradient(to bottom,rgba(0,0,0,0.65),transparent); z-index:10; }
+    .badge { font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; padding:3px 9px; border-radius:20px; }
+    .b-cv  { background:rgba(29,158,117,0.25); color:#1D9E75; border:0.5px solid rgba(29,158,117,0.4); }
+    .b-ai  { background:rgba(232,160,32,0.2); color:var(--gold); border:0.5px solid rgba(232,160,32,0.35); }
+    .b-live{ background:var(--red); color:#fff; }
+    .b-idle{ background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.6); }
+    #mode-pill { font-size:10px; color:rgba(255,255,255,0.3); font-family:'DM Mono',monospace; }
+
+    /* VIEWFINDER */
+    #vf { position:absolute; inset:0; pointer-events:none; z-index:5; display:none; }
+    .vc { position:absolute; width:22px; height:22px; border-color:rgba(255,255,255,0.3); border-style:solid; }
+    .vf-tl{top:18px;left:18px;border-width:2px 0 0 2px;border-top-left-radius:3px;}
+    .vf-tr{top:18px;right:18px;border-width:2px 2px 0 0;border-top-right-radius:3px;}
+    .vf-bl{bottom:18px;left:18px;border-width:0 0 2px 2px;border-bottom-left-radius:3px;}
+    .vf-br{bottom:18px;right:18px;border-width:0 2px 2px 0;border-bottom-right-radius:3px;}
+
+    /* CONFIDENCE BAR */
+    #conf-bar { position:absolute; bottom:0; left:0; right:0; height:2px; background:transparent; z-index:10; display:none; }
+    #conf-fill { height:100%; width:0%; transition:width 0.4s, background 0.4s; }
+
+    /* LOADER */
+    #loader { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); z-index:15; }
+    .ring { width:32px; height:32px; border:2px solid rgba(232,160,32,0.2); border-top-color:var(--gold); border-radius:50%; animation:spin 0.7s linear infinite; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+
+    /* BOTTOM */
+    #bottom { background:var(--bg); border-top:0.5px solid var(--border); display:none; flex-direction:column; flex-shrink:0; }
+
+    #ctrl { padding:10px 14px 8px; border-bottom:0.5px solid var(--border); }
+    .sl-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+    .sl-lbl { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:1px; width:64px; flex-shrink:0; }
+    input[type=range] { flex:1; -webkit-appearance:none; height:2px; background:var(--border2); border-radius:2px; outline:none; cursor:pointer; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:15px; height:15px; border-radius:50%; background:var(--gold); cursor:pointer; border:2px solid var(--bg); }
+    .sl-val { font-size:10px; font-family:'DM Mono',monospace; color:var(--text2); width:26px; text-align:right; }
+
+    #act-row { display:flex; gap:7px; margin-top:6px; }
+    .abtn { flex:1; padding:8px 6px; border-radius:var(--rs); font-size:11px; font-weight:500; font-family:'DM Sans',sans-serif; cursor:pointer; border:0.5px solid var(--border2); background:var(--bg1); color:var(--text); transition:background 0.1s, transform 0.1s; letter-spacing:0.2px; text-align:center; }
+    .abtn:active { transform:scale(0.96); }
+    .abtn.gold { background:var(--gold); color:#000; border-color:var(--gold); }
+    .abtn.active-live { background:rgba(226,75,74,0.15); border-color:rgba(226,75,74,0.5); color:var(--red); }
+
+    /* RESULTS */
+    #results { padding:10px 14px 14px; overflow-y:auto; max-height:200px; }
+    #res-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    #res-title { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:1.2px; }
+    #source-tag { font-size:10px; padding:2px 8px; border-radius:10px; }
+    .src-cv { background:rgba(29,158,117,0.15); color:#1D9E75; }
+    .src-ai { background:var(--gold-dim); color:var(--gold); }
+
+    #ball-list { display:flex; flex-direction:column; gap:5px; }
+    .brow { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:var(--rs); background:var(--bg1); border:0.5px solid var(--border); transition:all 0.25s; }
+    .brow.win { border-color:rgba(232,160,32,0.45); background:rgba(232,160,32,0.06); }
+    .bnum { font-size:11px; font-weight:600; font-family:'DM Mono',monospace; color:var(--text3); width:14px; text-align:center; }
+    .brow.win .bnum { color:var(--gold); }
+    .bdot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+    .binfo { flex:1; font-size:11px; color:var(--text2); line-height:1.3; }
+    .brow.win .binfo { color:var(--text); }
+    .bwin-tag { font-size:9px; font-weight:600; padding:2px 6px; border-radius:8px; background:var(--gold-dim); color:var(--gold); text-transform:uppercase; white-space:nowrap; }
+    .bconf { font-size:10px; font-family:'DM Mono',monospace; color:var(--text3); }
+
+    #empty { text-align:center; padding:12px 0; color:var(--text3); font-size:12px; line-height:1.7; }
+    #res-note { font-size:11px; color:var(--text3); line-height:1.5; margin-top:6px; padding-top:6px; border-top:0.5px solid var(--border); display:none; }
+
+    /* TOAST */
+    #toast { position:absolute; bottom:16px; left:12px; right:12px; background:#1e1010; border:0.5px solid rgba(226,75,74,0.35); color:#f0a0a0; font-size:11px; line-height:1.5; padding:9px 12px; border-radius:var(--rs); z-index:50; display:none; animation:su 0.2s ease; }
+    #toast.info { background:#101a10; border-color:rgba(29,158,117,0.35); color:#80d0a0; }
+    @keyframes su { from{transform:translateY(6px);opacity:0} to{transform:translateY(0);opacity:1} }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <div id="cam-zone">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+
+    <!-- START -->
+    <div id="start-screen">
+      <div class="s-icon">🎯</div>
+      <div class="s-title">Pétanque AR</div>
+      <div class="s-sub">Détecteur de boules</div>
+
+      <div class="section-card">
+        <h3>Mode de détection</h3>
+        <div class="mode-row">
+          <div class="mode-btn active" id="m-hybrid" onclick="setMode('hybrid')">🔀<br>Hybride<br><span style="font-size:10px;opacity:0.7">Recommandé</span></div>
+          <div class="mode-btn" id="m-cv" onclick="setMode('cv')">📐<br>Vision<br><span style="font-size:10px;opacity:0.7">Offline</span></div>
+          <div class="mode-btn" id="m-ai" onclick="setMode('ai')">🤖<br>Gemini<br><span style="font-size:10px;opacity:0.7">Réseau</span></div>
+        </div>
+        <div class="mode-desc" id="mode-desc">
+          OpenCV détecte les cercles en temps réel. Si la confiance est faible, Gemini prend le relais automatiquement.
+        </div>
+      </div>
+
+      <div class="section-card" id="api-card">
+        <h3>Clé API Google Gemini <span style="color:var(--text3);font-size:10px;font-weight:400;text-transform:none;">(optionnelle en mode Vision)</span></h3>
+        <span class="field-label">Clé Gemini</span>
+        <input type="password" id="api-input" placeholder="AIza..." autocomplete="off" spellcheck="false">
+        <p class="field-hint">
+          Gratuit sur <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a> → "Get API key"<br>
+          La clé est sauvegardée uniquement sur ton appareil.
+        </p>
+      </div>
+
+      <button id="start-btn" onclick="startApp()">Activer la caméra →</button>
+    </div>
+
+    <div id="hud">
+      <span class="badge b-idle" id="status-badge">Prêt</span>
+      <span id="mode-pill">—</span>
+    </div>
+    <div id="vf"><div class="vc vf-tl"></div><div class="vc vf-tr"></div><div class="vc vf-bl"></div><div class="vc vf-br"></div></div>
+    <div id="conf-bar"><div id="conf-fill"></div></div>
+    <div id="loader"><div class="ring"></div></div>
+    <div id="toast"></div>
+  </div>
+
+  <div id="bottom">
+    <div id="ctrl">
+      <div class="sl-row">
+        <span class="sl-lbl">Luminosité</span>
+        <input type="range" id="sl-b" min="50" max="200" value="100" step="1" oninput="updateFilter();document.getElementById('vb').textContent=this.value">
+        <span class="sl-val" id="vb">100</span>
+      </div>
+      <div class="sl-row">
+        <span class="sl-lbl">Contraste</span>
+        <input type="range" id="sl-c" min="50" max="200" value="100" step="1" oninput="updateFilter();document.getElementById('vc').textContent=this.value">
+        <span class="sl-val" id="vc">100</span>
+      </div>
+      <div class="sl-row">
+        <span class="sl-lbl">Sensibilité</span>
+        <input type="range" id="sl-s" min="1" max="10" value="5" step="1" oninput="document.getElementById('vs').textContent=this.value">
+        <span class="sl-val" id="vs">5</span>
+      </div>
+      <div id="act-row">
+        <button class="abtn" id="live-btn" onclick="toggleLive()">▶ Live</button>
+        <button class="abtn" onclick="captureNow()">📷 Capturer</button>
+        <button class="abtn" id="ai-btn" onclick="forceAI()">🤖 Gemini</button>
+      </div>
+    </div>
+    <div id="results">
+      <div id="res-header">
+        <span id="res-title">Classement</span>
+        <span id="source-tag" style="display:none"></span>
+      </div>
+      <div id="ball-list"><div id="empty">Pointe la caméra et appuie sur <strong style="color:#666">Live</strong> ou <strong style="color:#666">Capturer</strong></div></div>
+      <div id="res-note"></div>
+    </div>
+  </div>
+</div>
+
+<!-- OpenCV.js -->
+<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady()" onerror="onOpenCvError()"></script>
+
+<script>
+// ── CONFIG ──
+const COLORS = ['#3D8BFF','#E24B4A','#1D9E75','#D4537E','#E8A020','#7F77DD','#BA7517'];
+const MODE_DESCS = {
+  hybrid: 'OpenCV détecte les cercles en temps réel. Si la confiance est faible, Gemini prend le relais automatiquement.',
+  cv:     'Détection de cercles 100% locale, offline. Rapide mais sensible aux conditions de lumière.',
+  ai:     'Gemini analyse chaque image. Très fiable mais nécessite une connexion internet.'
+};
+
+// ── STATE ──
+let appMode = 'hybrid'; // hybrid | cv | ai
+let apiKey = '';
+let cvReady = false;
+let stream = null;
+let liveMode = false;
+let liveTimer = null;
+let isBusy = false;
+let lastData = null;
+let colorMap = {};
+let colorIdx = 0;
+let animId = null;
+let frameCount = 0;
+
+const video   = document.getElementById('video');
+const canvas  = document.getElementById('overlay');
+const ctx     = canvas.getContext('2d');
+
+// ── OPENCV READY ──
+function onOpenCvReady() {
+  cvReady = true;
+  console.log('OpenCV ready');
+}
+function onOpenCvError() {
+  console.warn('OpenCV failed to load — CV mode unavailable');
+}
+
+// ── MODE SELECTION ──
+function setMode(m) {
+  appMode = m;
+  ['hybrid','cv','ai'].forEach(id => {
+    document.getElementById('m-'+id).classList.toggle('active', id === m);
+  });
+  document.getElementById('mode-desc').textContent = MODE_DESCS[m];
+  document.getElementById('api-card').style.opacity = (m === 'cv') ? '0.5' : '1';
+}
+
+// ── FILTER ──
+function updateFilter() {
+  const b = document.getElementById('sl-b').value;
+  const c = document.getElementById('sl-c').value;
+  video.style.filter = `brightness(${b}%) contrast(${c}%)`;
+}
+
+// ── START ──
+async function startApp() {
+  apiKey = document.getElementById('api-input').value.trim();
+  if (apiKey) localStorage.setItem('ptq_gkey', apiKey);
+
+  if (appMode === 'ai' && !apiKey) {
+    showToast('Entre une clé Gemini pour utiliser le mode IA.');
+    return;
+  }
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch(e) {
+    showToast(e.name === 'NotAllowedError'
+      ? 'Accès caméra refusé. Autorise dans les paramètres du navigateur.'
+      : 'Erreur caméra : ' + e.message);
+    return;
+  }
+
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('hud').style.display = 'flex';
+  document.getElementById('vf').style.display = 'block';
+  document.getElementById('conf-bar').style.display = 'block';
+  document.getElementById('bottom').style.display = 'flex';
+
+  const pill = document.getElementById('mode-pill');
+  pill.textContent = appMode === 'hybrid' ? '🔀 hybride' : appMode === 'cv' ? '📐 vision' : '🤖 gemini';
+
+  video.addEventListener('loadedmetadata', resizeCv);
+  window.addEventListener('resize', resizeCv);
+  resizeCv();
+  requestAnimationFrame(drawLoop);
+}
+
+function resizeCv() {
+  canvas.width  = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+}
+
+// ── LIVE / CAPTURE ──
+function toggleLive() {
+  liveMode = !liveMode;
+  const btn = document.getElementById('live-btn');
+  if (liveMode) {
+    btn.textContent = '⏸ Pause';
+    btn.classList.add('active-live');
+    setBadge('Live', 'b-live');
+    runDetection();
+    liveTimer = setInterval(runDetection, appMode === 'cv' ? 800 : 3500);
+  } else {
+    clearInterval(liveTimer);
+    btn.textContent = '▶ Live';
+    btn.classList.remove('active-live');
+    setBadge('Prêt', 'b-idle');
+  }
+}
+
+function captureNow() { runDetection(); }
+function forceAI()    { runGemini(); }
+
+// ── MAIN DETECTION ROUTER ──
+async function runDetection() {
+  if (isBusy) return;
+
+  if (appMode === 'ai') {
+    await runGemini();
+    return;
+  }
+
+  if (appMode === 'cv' || !cvReady) {
+    await runOpenCV();
+    return;
+  }
+
+  // HYBRID: try OpenCV first
+  const cvResult = await runOpenCV(true); // silent mode
+  const confidence = cvResult ? cvResult.confidence : 0;
+  setConfBar(confidence);
+
+  if (confidence >= 0.55) {
+    // CV is confident enough
+    applyResult(cvResult, 'cv');
+  } else if (apiKey) {
+    // Fall back to Gemini
+    setBadge('Gemini...', 'b-ai');
+    await runGemini();
+  } else {
+    // No API key — use CV result anyway with warning
+    if (cvResult && cvResult.balls.length > 0) {
+      applyResult(cvResult, 'cv');
+      showToast('Confiance faible — ajoute une clé Gemini pour améliorer la détection', true);
+    } else {
+      showToast('Aucune boule détectée. Ajuste luminosité/contraste ou ajoute une clé Gemini.', false);
+    }
+  }
+}
+
+// ── OPENCV DETECTION ──
+async function runOpenCV(silent = false) {
+  if (!cvReady || typeof cv === 'undefined') {
+    if (!silent) showToast('OpenCV non chargé — utilise le mode Gemini.');
+    return null;
+  }
+
+  if (!silent) {
+    isBusy = true;
+    setBadge('Analyse...', 'b-cv');
+    showLoader(true);
+  }
+
+  // Snapshot
+  const tmp = document.createElement('canvas');
+  tmp.width  = video.videoWidth  || 640;
+  tmp.height = video.videoHeight || 480;
+  const tc = tmp.getContext('2d');
+  const b = document.getElementById('sl-b').value / 100;
+  const cc= document.getElementById('sl-c').value / 100;
+  tc.filter = `brightness(${b}) contrast(${cc})`;
+  tc.drawImage(video, 0, 0, tmp.width, tmp.height);
+
+  const sensitivity = parseInt(document.getElementById('sl-s').value); // 1-10
+
+  let result = null;
+  try {
+    result = detectCirclesCV(tmp, sensitivity);
+  } catch(e) {
+    console.error('OpenCV error:', e);
+  }
+
+  if (!silent) {
+    showLoader(false);
+    isBusy = false;
+    if (result) {
+      setConfBar(result.confidence);
+      applyResult(result, 'cv');
+    } else {
+      showToast('Aucune boule détectée. Ajuste les paramètres.');
+      setBadge(liveMode ? 'Live' : 'Prêt', liveMode ? 'b-live' : 'b-idle');
+    }
+  }
+
+  return result;
+}
+
+function detectCirclesCV(tmpCanvas, sensitivity) {
+  const src = cv.imread(tmpCanvas);
+  const gray = new cv.Mat();
+  const blurred = new cv.Mat();
+  const circles = new cv.Mat();
+
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, blurred, new cv.Size(9, 9), 2, 2);
+
+  // Sensitivity: 1=strict, 10=loose
+  const param1 = Math.round(200 - sensitivity * 10); // edge threshold: 100-190
+  const param2 = Math.round(55 - sensitivity * 4);   // accumulator: 15-51
+  const minR   = 8;
+  const maxR   = Math.round(tmpCanvas.width * 0.18);
+
+  cv.HoughCircles(blurred, circles, cv.HOUGH_GRADIENT, 1,
+    Math.round(tmpCanvas.width * 0.05), // minDist between circle centers
+    param1, param2, minR, maxR);
+
+  src.delete(); gray.delete(); blurred.delete();
+
+  if (circles.cols === 0) { circles.delete(); return null; }
+
+  // Parse circles — each col has [x, y, radius]
+  const found = [];
+  for (let i = 0; i < circles.cols; i++) {
+    found.push({
+      x: circles.data32F[i * 3],
+      y: circles.data32F[i * 3 + 1],
+      r: circles.data32F[i * 3 + 2],
+      xPct: (circles.data32F[i * 3]     / tmpCanvas.width)  * 100,
+      yPct: (circles.data32F[i * 3 + 1] / tmpCanvas.height) * 100,
+    });
+  }
+  circles.delete();
+
+  if (found.length === 0) return null;
+
+  // Sort by radius — cochonnet is smallest, boules are larger
+  found.sort((a, b) => a.r - b.r);
+
+  // Identify cochonnet: smallest circle IF clearly smaller than others
+  let cochonnet = null;
+  let balls = [];
+
+  if (found.length >= 2) {
+    const smallest = found[0];
+    const secondSmallest = found[1];
+    // Cochonnet typically ~40-60% the radius of boules
+    if (smallest.r < secondSmallest.r * 0.72) {
+      cochonnet = smallest;
+      balls = found.slice(1);
+    } else {
+      // All similar size — treat all as balls, pick geometric center as cochonnet hint
+      balls = found;
+    }
+  } else {
+    balls = found;
+  }
+
+  // Calculate distances from each ball to cochonnet
+  let ranked = [];
+  if (cochonnet && balls.length > 0) {
+    ranked = balls.map((b, i) => {
+      const dx = b.xPct - cochonnet.xPct;
+      const dy = b.yPct - cochonnet.yPct;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      return { id: i+1, x: b.xPct, y: b.yPct, r: b.r, dist, desc: describePosition(b.xPct, b.yPct) };
+    }).sort((a,b) => a.dist - b.dist)
+      .map((b, i) => ({ ...b, rank: i+1 }));
+  } else if (balls.length > 0) {
+    ranked = balls.map((b, i) => ({
+      id: i+1, x: b.xPct, y: b.yPct, r: b.r, dist: null,
+      desc: describePosition(b.xPct, b.yPct), rank: i+1
+    }));
+  }
+
+  // Confidence: higher if we found cochonnet + multiple balls with clear size diff
+  let confidence = 0;
+  if (cochonnet) confidence += 0.4;
+  if (ranked.length >= 2) confidence += 0.3;
+  if (ranked.length >= 3) confidence += 0.15;
+  if (cochonnet && ranked.length >= 2) confidence += 0.15;
+
+  return {
+    found: ranked.length > 0,
+    cochonnet: cochonnet ? { x: cochonnet.xPct, y: cochonnet.yPct, r: cochonnet.r } : null,
+    balls: ranked,
+    confidence,
+    note: cochonnet
+      ? `${ranked.length} boule(s) détectée(s), cochonnet trouvé`
+      : `${ranked.length} cercle(s) trouvé(s) — cochonnet non distingué`
+  };
+}
+
+function describePosition(xPct, yPct) {
+  const h = xPct < 33 ? 'gauche' : xPct > 66 ? 'droite' : 'centre';
+  const v = yPct < 33 ? 'haut'   : yPct > 66 ? 'bas'    : 'milieu';
+  return `Boule ${v} ${h}`;
+}
+
+// ── GEMINI DETECTION ──
+async function runGemini() {
+  if (!apiKey) { showToast('Aucune clé Gemini configurée. Relance l\'app pour en ajouter une.'); return; }
+
+  isBusy = true;
+  setBadge('Gemini...', 'b-ai');
+  showLoader(true);
+
+  const tmp = document.createElement('canvas');
+  tmp.width  = video.videoWidth  || 640;
+  tmp.height = video.videoHeight || 480;
+  const tc = tmp.getContext('2d');
+  const b  = document.getElementById('sl-b').value / 100;
+  const cc = document.getElementById('sl-c').value / 100;
+  tc.filter = `brightness(${b}) contrast(${cc})`;
+  tc.drawImage(video, 0, 0, tmp.width, tmp.height);
+  const b64 = tmp.toDataURL('image/jpeg', 0.75).split(',')[1];
+
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inlineData: { mimeType: 'image/jpeg', data: b64 } },
+              { text: `Analyse cette image d'une partie de pétanque.
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans balises markdown.
+Format exact :
+{
+  "found": true,
+  "cochonnet": { "x": 52, "y": 38 },
+  "balls": [
+    { "id": 1, "x": 30, "y": 70, "desc": "boule bas gauche", "rank": 1 },
+    { "id": 2, "x": 65, "y": 55, "desc": "boule centre droit", "rank": 2 }
+  ],
+  "note": "La boule 1 est la plus proche du cochonnet."
+}
+x et y = pourcentage de position dans l'image (0-100). rank 1 = boule la plus proche.
+Si pas de boules visibles : { "found": false, "note": "raison" }` }
+            ]
+          }],
+          generationConfig: { maxOutputTokens: 600, temperature: 0.1 }
+        })
+      }
+    );
+
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error.message);
+
+    const raw = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const data = JSON.parse(clean);
+
+    // Convert Gemini format to internal format
+    const result = {
+      found: data.found,
+      cochonnet: data.cochonnet ? { x: data.cochonnet.x, y: data.cochonnet.y } : null,
+      balls: (data.balls || []).map(b => ({ ...b, dist: null })),
+      confidence: 0.92,
+      note: data.note || ''
+    };
+    applyResult(result, 'ai');
+    setConfBar(0.92);
+
+  } catch(e) {
+    showToast('Erreur Gemini : ' + e.message);
+    setBadge(liveMode ? 'Live' : 'Prêt', liveMode ? 'b-live' : 'b-idle');
+  }
+
+  showLoader(false);
+  isBusy = false;
+}
+
+// ── APPLY RESULT ──
+function applyResult(result, source) {
+  lastData = { ...result, source };
+  renderResults(result, source);
+  setBadge(
+    source === 'cv' ? 'Vision' : 'Gemini',
+    source === 'cv' ? 'b-cv'   : 'b-ai'
+  );
+  if (liveMode) {
+    setTimeout(() => setBadge('Live', 'b-live'), 1200);
+  }
+}
+
+// ── RENDER RESULTS ──
+function renderResults(data, source) {
+  const list = document.getElementById('ball-list');
+  const note = document.getElementById('res-note');
+  const tag  = document.getElementById('source-tag');
+
+  tag.style.display = 'inline';
+  tag.textContent = source === 'cv' ? '📐 Vision locale' : '🤖 Gemini';
+  tag.className   = 'source-tag ' + (source === 'cv' ? 'src-cv' : 'src-ai');
+
+  if (!data.found || !data.balls || data.balls.length === 0) {
+    list.innerHTML = `<div id="empty" style="text-align:center;padding:12px 0;color:var(--text3);font-size:12px;line-height:1.7">${data.note || 'Aucune boule détectée.'}</div>`;
+    note.style.display = 'none';
+    return;
+  }
+
+  const sorted = [...data.balls].sort((a,b) => a.rank - b.rank);
+  list.innerHTML = sorted.map((ball, i) => `
+    <div class="brow ${i===0?'win':''}">
+      <div class="bnum">${ball.rank}</div>
+      <div class="bdot" style="background:${getColor(ball.id)}"></div>
+      <div class="binfo">${ball.desc}</div>
+      ${i===0 ? '<span class="bwin-tag">★ Gagnante</span>' : ''}
+      ${ball.dist !== null ? `<span class="bconf">${Math.round(ball.dist)}px</span>` : ''}
+    </div>
+  `).join('');
+
+  note.textContent = data.note || '';
+  note.style.display = data.note ? 'block' : 'none';
+}
+
+// ── DRAW OVERLAY ──
+function drawLoop() {
+  animId = requestAnimationFrame(drawLoop);
+  frameCount++;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!lastData || !lastData.found) return;
+
+  const W = canvas.width, H = canvas.height;
+  const t = Date.now();
+
+  // Cochonnet
+  if (lastData.cochonnet) {
+    const cx = (lastData.cochonnet.x / 100) * W;
+    const cy = (lastData.cochonnet.y / 100) * H;
+    const pulse = 0.5 + 0.5 * Math.sin(t / 380);
+
+    // Pulse ring
+    ctx.beginPath(); ctx.arc(cx, cy, 18 + pulse*4, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(61,139,255,${0.15+pulse*0.12})`; ctx.lineWidth=1; ctx.stroke();
+
+    // Main ring
+    ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI*2);
+    ctx.strokeStyle = '#3D8BFF'; ctx.lineWidth=2; ctx.stroke();
+
+    // Dot
+    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI*2);
+    ctx.fillStyle='#3D8BFF'; ctx.fill();
+
+    // Label
+    ctx.font='bold 10px DM Sans,sans-serif'; ctx.fillStyle='#3D8BFF';
+    ctx.textAlign='center'; ctx.fillText('COCHONNET', cx, cy-20);
+  }
+
+  if (!lastData.balls) return;
+  const sorted = [...lastData.balls].sort((a,b)=>a.rank-b.rank);
+
+  sorted.forEach((ball, i) => {
+    const bx = (ball.x / 100) * W;
+    const by = (ball.y / 100) * H;
+    const color = getColor(ball.id);
+    const win = i === 0;
+
+    // Dashed line to cochonnet for winner
+    if (win && lastData.cochonnet) {
+      const cx = (lastData.cochonnet.x/100)*W;
+      const cy = (lastData.cochonnet.y/100)*H;
+      ctx.save();
+      ctx.setLineDash([4,4]);
+      ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(cx,cy);
+      ctx.strokeStyle='rgba(232,160,32,0.5)'; ctx.lineWidth=1.5; ctx.stroke();
+      ctx.restore();
+    }
+
+    // Outer glow for winner
+    if (win) {
+      ctx.beginPath(); ctx.arc(bx, by, 28, 0, Math.PI*2);
+      ctx.strokeStyle='rgba(232,160,32,0.15)'; ctx.lineWidth=1; ctx.stroke();
+    }
+
+    // Circle fill
+    const radius = win ? 22 : 17;
+    ctx.beginPath(); ctx.arc(bx, by, radius, 0, Math.PI*2);
+    ctx.fillStyle = win ? 'rgba(232,160,32,0.12)' : color+'18'; ctx.fill();
+
+    // Circle stroke
+    ctx.beginPath(); ctx.arc(bx, by, radius, 0, Math.PI*2);
+    ctx.strokeStyle = win ? '#E8A020' : color;
+    ctx.lineWidth = win ? 2.5 : 1.5; ctx.stroke();
+
+    // Rank label
+    ctx.font=`bold ${win?13:11}px DM Mono,monospace`;
+    ctx.fillStyle = win ? '#E8A020' : color;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('#'+ball.rank, bx, by);
+    ctx.textBaseline='alphabetic'; ctx.textAlign='left';
+  });
+}
+
+// ── HELPERS ──
+function getColor(id) {
+  if (!colorMap[id]) { colorMap[id] = COLORS[colorIdx % COLORS.length]; colorIdx++; }
+  return colorMap[id];
+}
+function setBadge(text, cls) {
+  const b = document.getElementById('status-badge');
+  b.textContent = text;
+  b.className = 'badge ' + cls;
+}
+function setConfBar(val) {
+  const fill = document.getElementById('conf-fill');
+  const pct = Math.round(Math.min(1, Math.max(0, val)) * 100);
+  fill.style.width = pct + '%';
+  fill.style.background = pct > 65 ? '#1D9E75' : pct > 35 ? '#E8A020' : '#E24B4A';
+}
+function showLoader(v) { document.getElementById('loader').style.display = v ? 'flex' : 'none'; }
+function showToast(msg, info=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = info ? 'info' : '';
+  t.style.display = 'block';
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.style.display='none', 4000);
+}
+
+// Restore API key
+window.addEventListener('load', () => {
+  const k = localStorage.getItem('ptq_gkey');
+  if (k) document.getElementById('api-input').value = k;
+});
+</script>
+</body>
+</html>
