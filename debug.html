@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Pétanque — Mode Debug</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #E8A020; --gold-dim: rgba(232,160,32,0.18);
+      --blue: #3D8BFF; --red: #E24B4A; --green: #1D9E75; --purple: #7F77DD;
+      --bg: #0c0c0d; --bg1: #141416; --bg2: #1c1c20;
+      --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.13);
+      --text: #f0f0f0; --text2: #888; --text3: #444;
+      --r: 12px; --rs: 8px;
+    }
+    html, body { height:100%; width:100%; background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; overflow:hidden; }
+    #app { display:flex; flex-direction:column; height:100dvh; width:100%; max-width:480px; margin:0 auto; }
+
+    /* ── SCREENS ── */
+    .screen { position:absolute; inset:0; display:none; flex-direction:column; max-width:480px; margin:0 auto; }
+    .screen.active { display:flex; }
+
+    /* ── SETUP SCREEN ── */
+    #screen-setup {
+      background:var(--bg); align-items:center; justify-content:flex-start;
+      padding:24px 20px; overflow-y:auto; gap:0;
+    }
+    .setup-header { display:flex; align-items:center; gap:10px; width:100%; margin-bottom:20px; }
+    .back-link { font-size:12px; color:var(--text2); cursor:pointer; padding:4px 0; }
+    .back-link:hover { color:var(--text); }
+    .setup-title { font-size:18px; font-weight:600; letter-spacing:-0.4px; }
+    .setup-badge { font-size:9px; font-weight:600; letter-spacing:1px; text-transform:uppercase; padding:3px 8px; border-radius:20px; background:rgba(127,119,221,0.18); color:var(--purple); border:0.5px solid rgba(127,119,221,0.3); margin-left:auto; }
+
+    .card { width:100%; background:var(--bg1); border:0.5px solid var(--border2); border-radius:var(--r); padding:14px; margin-bottom:10px; }
+    .card h3 { font-size:10px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; }
+    .field-lbl { font-size:10px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:5px; display:block; }
+    input[type=text], input[type=password] {
+      width:100%; background:var(--bg2); border:0.5px solid var(--border2); border-radius:var(--rs);
+      padding:9px 12px; font-size:12px; font-family:'DM Mono',monospace; color:var(--text);
+      outline:none; transition:border-color 0.2s; margin-bottom:8px;
+    }
+    input:focus { border-color:var(--gold); }
+    input::placeholder { color:var(--text3); }
+    .field-hint { font-size:11px; color:var(--text3); line-height:1.5; margin-top:-4px; margin-bottom:8px; }
+    .field-hint a { color:var(--blue); text-decoration:none; }
+
+    .btn-primary {
+      width:100%; background:var(--gold); color:#000; border:none; border-radius:40px;
+      padding:12px; font-size:14px; font-weight:600; font-family:'DM Sans',sans-serif;
+      cursor:pointer; transition:opacity 0.15s, transform 0.1s; margin-top:4px;
+    }
+    .btn-primary:active { transform:scale(0.97); }
+    .btn-secondary {
+      width:100%; background:var(--bg2); color:var(--text2); border:0.5px solid var(--border2);
+      border-radius:var(--rs); padding:9px; font-size:12px; font-weight:500;
+      font-family:'DM Sans',sans-serif; cursor:pointer; transition:background 0.1s;
+    }
+    .btn-secondary:hover { background:var(--bg1); color:var(--text); }
+
+    /* ── DEBUG SCREEN ── */
+    #screen-debug { background:var(--bg); flex-direction:column; }
+
+    /* Image zone */
+    #img-zone { position:relative; flex:1; background:#000; overflow:hidden; min-height:0; }
+    #debug-img { width:100%; height:100%; object-fit:contain; display:block; }
+    #debug-canvas { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+
+    /* Nav overlay top */
+    #img-nav {
+      position:absolute; top:0; left:0; right:0; z-index:10;
+      display:flex; justify-content:space-between; align-items:center;
+      padding:10px 12px;
+      background:linear-gradient(to bottom, rgba(0,0,0,0.65), transparent);
+    }
+    .nav-btn {
+      background:rgba(0,0,0,0.45); border:0.5px solid var(--border2); border-radius:20px;
+      padding:4px 12px; font-size:11px; color:rgba(255,255,255,0.7);
+      cursor:pointer; font-family:'DM Sans',sans-serif; transition:background 0.15s;
+    }
+    .nav-btn:hover { background:rgba(255,255,255,0.1); }
+    .nav-btn:disabled { opacity:0.3; cursor:default; }
+    #img-counter { font-size:11px; color:rgba(255,255,255,0.5); font-family:'DM Mono',monospace; }
+
+    /* Status badge */
+    #dbg-badge { position:absolute; bottom:10px; left:50%; transform:translateX(-50%); z-index:10; font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; padding:3px 10px; border-radius:20px; }
+    .b-idle   { background:rgba(255,255,255,0.1); color:rgba(255,255,255,0.55); }
+    .b-analyzing { background:rgba(232,160,32,0.2); color:var(--gold); border:0.5px solid rgba(232,160,32,0.3); }
+    .b-cv   { background:rgba(29,158,117,0.22); color:#1D9E75; border:0.5px solid rgba(29,158,117,0.35); }
+    .b-ai   { background:rgba(61,139,255,0.2); color:var(--blue); border:0.5px solid rgba(61,139,255,0.3); }
+
+    /* Loader */
+    #dbg-loader { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.35); z-index:15; }
+    .ring { width:30px; height:30px; border:2px solid rgba(232,160,32,0.18); border-top-color:var(--gold); border-radius:50%; animation:spin 0.7s linear infinite; }
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── BOTTOM PANEL ── */
+    #dbg-bottom { background:var(--bg); border-top:0.5px solid var(--border); flex-shrink:0; }
+
+    /* Action row */
+    #dbg-actions { display:flex; gap:6px; padding:10px 12px 8px; border-bottom:0.5px solid var(--border); }
+    .abtn { flex:1; padding:8px 5px; border-radius:var(--rs); font-size:11px; font-weight:500; font-family:'DM Sans',sans-serif; cursor:pointer; border:0.5px solid var(--border2); background:var(--bg1); color:var(--text); transition:background 0.1s, transform 0.1s; text-align:center; }
+    .abtn:active { transform:scale(0.96); }
+    .abtn.gold { background:var(--gold); color:#000; border-color:var(--gold); }
+
+    /* Feedback row */
+    #feedback-row { display:flex; gap:6px; padding:8px 12px; border-bottom:0.5px solid var(--border); }
+    .fb-btn { flex:1; padding:9px; border-radius:var(--rs); font-size:12px; font-weight:600; font-family:'DM Sans',sans-serif; cursor:pointer; border:none; transition:opacity 0.1s, transform 0.1s; text-align:center; }
+    .fb-btn:active { transform:scale(0.96); }
+    .fb-valid   { background:rgba(29,158,117,0.2); color:#1D9E75; border:0.5px solid rgba(29,158,117,0.35); }
+    .fb-invalid { background:rgba(226,75,74,0.15); color:var(--red);  border:0.5px solid rgba(226,75,74,0.3); }
+    .fb-btn.selected-valid   { background:#1D9E75; color:#000; }
+    .fb-btn.selected-invalid { background:var(--red); color:#fff; }
+    #fb-note-row { display:flex; gap:6px; padding:0 12px 8px; }
+    #fb-note { flex:1; background:var(--bg2); border:0.5px solid var(--border2); border-radius:var(--rs); padding:7px 10px; font-size:11px; font-family:'DM Sans',sans-serif; color:var(--text); outline:none; }
+    #fb-note::placeholder { color:var(--text3); }
+    #fb-note:focus { border-color:rgba(127,119,221,0.5); }
+    #fb-save-btn { background:var(--purple); color:#fff; border:none; border-radius:var(--rs); padding:7px 14px; font-size:11px; font-weight:600; font-family:'DM Sans',sans-serif; cursor:pointer; }
+
+    /* Results */
+    #dbg-results { padding:8px 12px 10px; overflow-y:auto; max-height:160px; }
+    #dbg-res-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+    #dbg-res-title { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:1.2px; }
+    #dbg-source-tag { font-size:10px; padding:2px 8px; border-radius:10px; display:none; }
+    .src-cv { background:rgba(29,158,117,0.13); color:#1D9E75; }
+    .src-ai { background:var(--gold-dim); color:var(--gold); }
+    #dbg-ball-list { display:flex; flex-direction:column; gap:4px; }
+    .brow { display:flex; align-items:center; gap:9px; padding:6px 10px; border-radius:var(--rs); background:var(--bg1); border:0.5px solid var(--border); }
+    .brow.win { border-color:rgba(232,160,32,0.42); background:rgba(232,160,32,0.055); }
+    .bnum { font-size:11px; font-weight:600; font-family:'DM Mono',monospace; color:var(--text3); width:14px; text-align:center; }
+    .brow.win .bnum { color:var(--gold); }
+    .bdot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+    .binfo { flex:1; font-size:11px; color:var(--text2); }
+    .brow.win .binfo { color:var(--text); }
+    .bwin-tag { font-size:9px; font-weight:600; padding:2px 6px; border-radius:8px; background:var(--gold-dim); color:var(--gold); text-transform:uppercase; }
+    #dbg-empty { text-align:center; padding:10px 0; color:var(--text3); font-size:11px; line-height:1.7; }
+
+    /* Stats bar */
+    #stats-bar { display:flex; gap:6px; padding:6px 12px 8px; border-top:0.5px solid var(--border); }
+    .stat-pill { flex:1; text-align:center; background:var(--bg2); border-radius:var(--rs); padding:5px 4px; }
+    .stat-n { font-size:15px; font-weight:600; font-family:'DM Mono',monospace; }
+    .stat-l { font-size:9px; color:var(--text3); text-transform:uppercase; letter-spacing:0.8px; margin-top:1px; }
+    .stat-n.green { color:var(--green); }
+    .stat-n.red   { color:var(--red); }
+    .stat-n.gold  { color:var(--gold); }
+
+    /* Toast */
+    #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); white-space:nowrap; background:#1e1010; border:0.5px solid rgba(226,75,74,0.35); color:#f0a0a0; font-size:11px; padding:8px 14px; border-radius:var(--rs); z-index:50; display:none; animation:su 0.2s ease; }
+    #toast.ok { background:#101a10; border-color:rgba(29,158,117,0.35); color:#80d0a0; }
+    @keyframes su{from{transform:translate(-50%,6px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+
+    /* Settings panel */
+    #settings-panel { display:none; position:absolute; inset:0; background:var(--bg); z-index:40; flex-direction:column; padding:20px; overflow-y:auto; }
+    #settings-panel.open { display:flex; }
+    #settings-panel h2 { font-size:16px; font-weight:600; margin-bottom:16px; }
+    #stats-list { display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto; }
+    .stat-entry { background:var(--bg1); border:0.5px solid var(--border2); border-radius:var(--rs); padding:8px 12px; font-size:11px; }
+    .stat-entry .se-img { font-weight:600; color:var(--text); margin-bottom:2px; }
+    .stat-entry .se-verdict { margin-bottom:2px; }
+    .stat-entry .se-note { color:var(--text3); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ══ SETUP ══ -->
+  <div id="screen-setup" class="screen active">
+    <div class="setup-header">
+      <div class="setup-title">Mode debug</div>
+      <span class="setup-badge">Debug</span>
+    </div>
+
+    <div class="card">
+      <h3>GitHub Pages</h3>
+      <span class="field-lbl">URL de base du repo</span>
+      <input type="text" id="gh-url" placeholder="https://PSEUDO.github.io/petanque">
+      <p class="field-hint">Ex : https://moname.github.io/petanque — les images seront chargées depuis <code>debugPics/</code></p>
+    </div>
+
+    <div class="card">
+      <h3>Sauvegarder des captures (optionnel)</h3>
+      <span class="field-lbl">Token GitHub</span>
+      <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx">
+      <p class="field-hint">Token avec droit <strong style="color:var(--text2)">repo:write</strong> — génère sur <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a><br>Nécessaire uniquement pour sauvegarder de nouvelles images depuis la caméra.</p>
+      <span class="field-lbl">Nom du repo</span>
+      <input type="text" id="gh-repo" placeholder="PSEUDO/petanque">
+    </div>
+
+    <div class="card">
+      <h3>Clés API</h3>
+      <span class="field-lbl">Clé Claude (analyse IA)</span>
+      <input type="password" id="claude-key" placeholder="sk-ant-api03-...">
+    </div>
+
+    <button class="btn-primary" onclick="startDebug()">Charger les images →</button>
+  </div>
+
+  <!-- ══ DEBUG SCREEN ══ -->
+  <div id="screen-debug" class="screen">
+
+    <div id="img-zone">
+      <img id="debug-img" src="" alt="">
+      <canvas id="debug-canvas"></canvas>
+      <div id="dbg-badge" class="b-idle">Prêt</div>
+      <div id="dbg-loader"><div class="ring"></div></div>
+
+      <div id="img-nav">
+        <button class="nav-btn" id="prev-btn" onclick="navImg(-1)">← Précédente</button>
+        <span id="img-counter">—</span>
+        <button class="nav-btn" id="next-btn" onclick="navImg(1)">Suivante →</button>
+        <button class="nav-btn" onclick="openSettings()" style="margin-left:4px">⚙</button>
+      </div>
+    </div>
+
+    <div id="dbg-bottom">
+      <div id="dbg-actions">
+        <button class="abtn" onclick="analyzeCV()">📐 Vision</button>
+        <button class="abtn gold" onclick="analyzeClaude()">🤖 Claude</button>
+        <button class="abtn" onclick="analyzeBoth()">🔀 Les deux</button>
+        <button class="abtn" onclick="saveCurrent()" id="save-btn" title="Sauvegarder depuis caméra">📷 +</button>
+      </div>
+
+      <div id="feedback-row">
+        <button class="fb-btn fb-valid"   id="btn-valid"   onclick="setFeedback('valid')">✓ Correct</button>
+        <button class="fb-btn fb-invalid" id="btn-invalid" onclick="setFeedback('invalid')">✗ Incorrect</button>
+      </div>
+      <div id="fb-note-row">
+        <input id="fb-note" type="text" placeholder="Note optionnelle (ex: mauvaise attribution boule 2)">
+        <button id="fb-save-btn" onclick="saveFeedback()">Sauvegarder</button>
+      </div>
+
+      <div id="dbg-results">
+        <div id="dbg-res-header">
+          <span id="dbg-res-title">Classement</span>
+          <span id="dbg-source-tag"></span>
+        </div>
+        <div id="dbg-ball-list"><div id="dbg-empty">Analyse une image pour voir le classement</div></div>
+      </div>
+
+      <div id="stats-bar">
+        <div class="stat-pill"><div class="stat-n" id="s-total">0</div><div class="stat-l">Images</div></div>
+        <div class="stat-pill"><div class="stat-n green" id="s-valid">0</div><div class="stat-l">Corrects</div></div>
+        <div class="stat-pill"><div class="stat-n red" id="s-invalid">0</div><div class="stat-l">Incorrects</div></div>
+        <div class="stat-pill"><div class="stat-n gold" id="s-rate">—</div><div class="stat-l">Précision</div></div>
+        <button class="abtn" onclick="exportFeedbacks()" style="flex:0.8;font-size:10px;padding:5px 4px">↓ Export</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ SETTINGS (feedbacks log) ══ -->
+  <div id="settings-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2>Feedbacks enregistrés</h2>
+      <button class="nav-btn" onclick="closeSettings()">Fermer</button>
+    </div>
+    <div id="stats-list"></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn-secondary" onclick="exportFeedbacks()">↓ Exporter JSON</button>
+      <button class="btn-secondary" style="color:var(--red);border-color:rgba(226,75,74,0.3)" onclick="clearFeedbacks()">Effacer tout</button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="cvReady=true"></script>
+<script>
+// ══ CONFIG ══
+const COLORS = ['#3D8BFF','#E24B4A','#1D9E75','#D4537E','#E8A020','#7F77DD'];
+const STORAGE_KEY = 'ptq_debug_feedbacks';
+const SETUP_KEY   = 'ptq_debug_setup';
+
+// ══ STATE ══
+let cvReady   = false;
+let ghBase    = '';   // https://user.github.io/repo
+let ghToken   = '';
+let ghRepo    = '';   // user/repo
+let claudeKey = '';
+let images    = [];   // [{name, url}]
+let curIdx    = 0;
+let curResult = null;
+let curFeedback = null; // 'valid' | 'invalid' | null
+let feedbacks = {};   // { imgName: { verdict, note, result, ts } }
+let colorMap  = {};
+let colorIdx  = 0;
+
+const img    = document.getElementById('debug-img');
+const canvas = document.getElementById('debug-canvas');
+const ctx    = canvas.getContext('2d');
+
+// ══ SETUP ══
+window.addEventListener('load', () => {
+  const s = JSON.parse(localStorage.getItem(SETUP_KEY) || '{}');
+  if (s.ghBase)    document.getElementById('gh-url').value    = s.ghBase;
+  if (s.ghToken)   document.getElementById('gh-token').value  = s.ghToken;
+  if (s.ghRepo)    document.getElementById('gh-repo').value   = s.ghRepo;
+  if (s.claudeKey) document.getElementById('claude-key').value= s.claudeKey;
+  feedbacks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  updateStats();
+});
+
+async function startDebug() {
+  ghBase    = document.getElementById('gh-url').value.trim().replace(/\/$/, '');
+  ghToken   = document.getElementById('gh-token').value.trim();
+  ghRepo    = document.getElementById('gh-repo').value.trim();
+  claudeKey = document.getElementById('claude-key').value.trim();
+
+  if (!ghBase) { showToast('Entre l\'URL de ton GitHub Pages.'); return; }
+
+  localStorage.setItem(SETUP_KEY, JSON.stringify({ ghBase, ghToken, ghRepo, claudeKey }));
+
+  // Load manifest
+  try {
+    const resp = await fetch(`${ghBase}/debugPics/manifest.json?t=${Date.now()}`);
+    if (!resp.ok) throw new Error('manifest.json introuvable');
+    const manifest = await resp.json();
+    if (!manifest.images || !manifest.images.length) throw new Error('Aucune image dans le manifest');
+    images = manifest.images.map(name => ({ name, url: `${ghBase}/debugPics/${name}` }));
+  } catch(e) {
+    showToast('Erreur manifest : ' + e.message);
+    return;
+  }
+
+  showScreen('screen-debug');
+  loadImage(0);
+}
+
+// ══ IMAGE NAVIGATION ══
+function loadImage(idx) {
+  if (idx < 0 || idx >= images.length) return;
+  curIdx     = idx;
+  curResult  = null;
+  curFeedback = feedbacks[images[idx].name]?.verdict || null;
+
+  img.onload = () => {
+    resizeCanvas();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    updateFeedbackUI();
+    document.getElementById('dbg-ball-list').innerHTML = '<div id="dbg-empty">Analyse une image pour voir le classement</div>';
+    document.getElementById('dbg-source-tag').style.display = 'none';
+    setBadge('Prêt', 'b-idle');
+  };
+  img.src = images[idx].url + '?t=' + Date.now();
+
+  document.getElementById('img-counter').textContent = `${idx+1} / ${images.length}`;
+  document.getElementById('prev-btn').disabled = (idx === 0);
+  document.getElementById('next-btn').disabled = (idx === images.length - 1);
+  document.getElementById('fb-note').value = feedbacks[images[idx].name]?.note || '';
+}
+
+function navImg(dir) {
+  loadImage(curIdx + dir);
+}
+
+function resizeCanvas() {
+  canvas.width  = img.clientWidth  || img.naturalWidth;
+  canvas.height = img.clientHeight || img.naturalHeight;
+}
+
+// ══ ANALYSE ══
+async function analyzeCV() {
+  if (!cvReady || typeof cv === 'undefined') { showToast('OpenCV non chargé.'); return; }
+  setBadge('Vision…', 'b-analyzing');
+  showLoader(true);
+
+  try {
+    const tmp = imageToCanvas();
+    const sens = 5;
+    const result = detectCircles(tmp, sens);
+    if (result) { curResult = result; renderResults(result, 'cv'); drawOverlay(result); setBadge('Vision', 'b-cv'); }
+    else { showToast('Aucun cercle détecté. Essaie Claude.'); setBadge('Prêt','b-idle'); }
+  } catch(e) { showToast('Erreur CV : '+e.message); setBadge('Prêt','b-idle'); }
+
+  showLoader(false);
+}
+
+async function analyzeClaude() {
+  if (!claudeKey) { showToast('Aucune clé Claude configurée.'); return; }
+  setBadge('Claude…', 'b-analyzing');
+  showLoader(true);
+
+  const tmp = imageToCanvas();
+  const b64 = tmp.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': claudeKey,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body: JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:700,
+        messages:[{
+          role:'user',
+          content:[
+            {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
+            {type:'text',text:`Analyse cette image de pétanque. Identifie toutes les boules et le cochonnet.
+Réponds UNIQUEMENT en JSON valide sans texte ni balises.
+{
+  "found": true,
+  "cochonnet": { "x": 52, "y": 38 },
+  "balls": [
+    { "id": 1, "x": 30, "y": 70, "desc": "boule bas gauche", "rank": 1 },
+    { "id": 2, "x": 65, "y": 55, "desc": "boule centre droit", "rank": 2 }
+  ],
+  "note": "La boule 1 est la plus proche."
+}
+x,y = pourcentages (0-100). rank 1 = plus proche du cochonnet.
+Si rien : { "found": false, "note": "..." }`}
+          ]
+        }]
+      })
+    });
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error.message);
+    const raw = json.content.map(i=>i.text||'').join('').replace(/```json|```/g,'').trim();
+    const data = JSON.parse(raw);
+    const result = { found:data.found, cochonnet:data.cochonnet||null, balls:data.balls||[], confidence:0.92, note:data.note||'' };
+    curResult = result;
+    renderResults(result, 'ai');
+    drawOverlay(result);
+    setBadge('Claude', 'b-ai');
+  } catch(e) { showToast('Erreur Claude : '+e.message); setBadge('Prêt','b-idle'); }
+
+  showLoader(false);
+}
+
+async function analyzeBoth() {
+  await analyzeCV();
+  const cvResult = curResult;
+  const cvConf   = cvResult ? cvResult.confidence : 0;
+  if (cvConf < 0.55 && claudeKey) {
+    showToast('Vision insuffisante (conf: ' + Math.round(cvConf*100) + '%) — passage à Claude', true);
+    await analyzeClaude();
+  }
+}
+
+// ══ OPENCV DETECTION ══
+function imageToCanvas() {
+  const tmp = document.createElement('canvas');
+  tmp.width  = img.naturalWidth;
+  tmp.height = img.naturalHeight;
+  tmp.getContext('2d').drawImage(img, 0, 0);
+  return tmp;
+}
+
+function detectCircles(tmp, sens) {
+  const mat  = cv.imread(tmp);
+  const gray = new cv.Mat();
+  const blur = new cv.Mat();
+  const circ = new cv.Mat();
+  cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, blur, new cv.Size(9,9), 2, 2);
+  const p1 = 200 - sens*10;
+  const p2 = 55  - sens*4;
+  cv.HoughCircles(blur, circ, cv.HOUGH_GRADIENT, 1,
+    Math.round(tmp.width*0.05), p1, p2, 8, Math.round(tmp.width*0.2));
+  mat.delete(); gray.delete(); blur.delete();
+  if (circ.cols===0){ circ.delete(); return null; }
+  const found = [];
+  for(let i=0;i<circ.cols;i++){
+    found.push({ xPct:(circ.data32F[i*3]/tmp.width)*100, yPct:(circ.data32F[i*3+1]/tmp.height)*100, r:circ.data32F[i*3+2] });
+  }
+  circ.delete();
+  found.sort((a,b)=>a.r-b.r);
+  let coch=null, balls=[];
+  if(found.length>=2 && found[0].r < found[1].r*0.72){ coch=found[0]; balls=found.slice(1); }
+  else { balls=found; }
+  const ranked = coch && balls.length
+    ? balls.map((b,i)=>{ const dx=b.xPct-coch.xPct,dy=b.yPct-coch.yPct; return {id:i+1,x:b.xPct,y:b.yPct,dist:Math.sqrt(dx*dx+dy*dy),desc:`Boule ${i+1}`}; })
+        .sort((a,b)=>a.dist-b.dist).map((b,i)=>({...b,rank:i+1}))
+    : balls.map((b,i)=>({id:i+1,x:b.xPct,y:b.yPct,dist:null,desc:`Cercle ${i+1}`,rank:i+1}));
+  let conf = 0;
+  if(coch) conf+=0.4; if(ranked.length>=2) conf+=0.3; if(ranked.length>=3) conf+=0.15; if(coch&&ranked.length>=2) conf+=0.15;
+  return { found:ranked.length>0, cochonnet:coch?{x:coch.xPct,y:coch.yPct}:null, balls:ranked, confidence:conf, note:'' };
+}
+
+// ══ DRAW OVERLAY ══
+function drawOverlay(data) {
+  resizeCanvas();
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!data||!data.found) return;
+  const W=canvas.width, H=canvas.height;
+
+  if(data.cochonnet){
+    const cx=(data.cochonnet.x/100)*W, cy=(data.cochonnet.y/100)*H;
+    ctx.beginPath(); ctx.arc(cx,cy,12,0,Math.PI*2); ctx.strokeStyle='#3D8BFF'; ctx.lineWidth=2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,3,0,Math.PI*2); ctx.fillStyle='#3D8BFF'; ctx.fill();
+    ctx.font='bold 10px DM Sans,sans-serif'; ctx.fillStyle='#3D8BFF'; ctx.textAlign='center'; ctx.fillText('COCHONNET',cx,cy-18);
+  }
+  if(!data.balls) return;
+  const sorted=[...data.balls].sort((a,b)=>a.rank-b.rank);
+  sorted.forEach((ball,i)=>{
+    const bx=(ball.x/100)*W, by=(ball.y/100)*H;
+    const color=getColor(ball.id), win=i===0;
+    if(win&&data.cochonnet){
+      const cx=(data.cochonnet.x/100)*W, cy=(data.cochonnet.y/100)*H;
+      ctx.save(); ctx.setLineDash([4,4]);
+      ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(cx,cy);
+      ctx.strokeStyle='rgba(232,160,32,0.5)'; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
+    }
+    const r=win?22:17;
+    ctx.beginPath(); ctx.arc(bx,by,r,0,Math.PI*2); ctx.fillStyle=win?'rgba(232,160,32,0.12)':color+'18'; ctx.fill();
+    ctx.beginPath(); ctx.arc(bx,by,r,0,Math.PI*2); ctx.strokeStyle=win?'#E8A020':color; ctx.lineWidth=win?2.5:1.5; ctx.stroke();
+    ctx.font=`bold ${win?13:11}px DM Mono,monospace`; ctx.fillStyle=win?'#E8A020':color;
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('#'+ball.rank,bx,by);
+    ctx.textBaseline='alphabetic'; ctx.textAlign='left';
+  });
+}
+
+// ══ RENDER RESULTS ══
+function renderResults(data, source) {
+  const list = document.getElementById('dbg-ball-list');
+  const tag  = document.getElementById('dbg-source-tag');
+  tag.style.display='inline';
+  tag.textContent = source==='cv' ? '📐 Vision locale' : '🤖 Claude IA';
+  tag.className   = 'source-tag '+(source==='cv'?'src-cv':'src-ai');
+  if(!data.found||!data.balls||!data.balls.length){ list.innerHTML='<div id="dbg-empty" style="text-align:center;padding:10px 0;color:var(--text3);font-size:11px">'+(data.note||'Aucune boule détectée.')+'</div>'; return; }
+  const sorted=[...data.balls].sort((a,b)=>a.rank-b.rank);
+  list.innerHTML=sorted.map((b,i)=>`
+    <div class="brow ${i===0?'win':''}">
+      <div class="bnum">${b.rank}</div>
+      <div class="bdot" style="background:${getColor(b.id)}"></div>
+      <div class="binfo">${b.desc}</div>
+      ${i===0?'<span class="bwin-tag">★ Gagnante</span>':''}
+    </div>`).join('');
+}
+
+// ══ FEEDBACK ══
+function setFeedback(v) {
+  curFeedback = (curFeedback === v) ? null : v; // toggle
+  updateFeedbackUI();
+}
+
+function updateFeedbackUI() {
+  document.getElementById('btn-valid').className   = 'fb-btn fb-valid'  +(curFeedback==='valid'  ?' selected-valid':'');
+  document.getElementById('btn-invalid').className = 'fb-btn fb-invalid'+(curFeedback==='invalid'?' selected-invalid':'');
+}
+
+function saveFeedback() {
+  if (!curFeedback) { showToast('Choisis d\'abord Correct ou Incorrect.'); return; }
+  const name = images[curIdx].name;
+  feedbacks[name] = {
+    verdict: curFeedback,
+    note:    document.getElementById('fb-note').value.trim(),
+    result:  curResult ? { ballCount: curResult.balls?.length||0, confidence: Math.round((curResult.confidence||0)*100) } : null,
+    ts:      new Date().toISOString()
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(feedbacks));
+  updateStats();
+  showToast('Feedback sauvegardé ✓', true);
+  // Auto-advance
+  setTimeout(() => { if (curIdx < images.length-1) navImg(1); }, 600);
+}
+
+function updateStats() {
+  const vals = Object.values(feedbacks);
+  const valid   = vals.filter(f=>f.verdict==='valid').length;
+  const invalid = vals.filter(f=>f.verdict==='invalid').length;
+  const total   = vals.length;
+  document.getElementById('s-total').textContent   = images.length || '—';
+  document.getElementById('s-valid').textContent   = valid;
+  document.getElementById('s-invalid').textContent = invalid;
+  document.getElementById('s-rate').textContent    = total ? Math.round(valid/total*100)+'%' : '—';
+}
+
+function exportFeedbacks() {
+  const blob = new Blob([JSON.stringify(feedbacks, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'petanque-feedbacks.json';
+  a.click();
+  showToast('Export téléchargé ✓', true);
+}
+
+function clearFeedbacks() {
+  if (!confirm('Effacer tous les feedbacks ?')) return;
+  feedbacks = {};
+  localStorage.removeItem(STORAGE_KEY);
+  updateStats();
+  updateFeedbackUI();
+  showToast('Feedbacks effacés', true);
+}
+
+// ══ SAVE IMAGE VIA GITHUB API ══
+async function saveCurrent() {
+  if (!ghToken || !ghRepo) { showToast('Token GitHub et nom du repo requis dans les réglages.'); return; }
+
+  // Find next imgN number
+  const nums = images.map(i => {
+    const m = i.name.match(/^img(\d+)\./);
+    return m ? parseInt(m[1]) : 0;
+  });
+  const nextN = (nums.length ? Math.max(...nums) : 0) + 1;
+  const fname = `img${nextN}.jpg`;
+
+  // Capture from main app video — for debug we just re-save current image
+  showToast('Préparation de la capture…', true);
+  try {
+    // Convert current image to base64
+    const tmp = imageToCanvas();
+    const b64 = tmp.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+    const apiUrl = `https://api.github.com/repos/${ghRepo}/contents/debugPics/${fname}`;
+    const resp = await fetch(apiUrl, {
+      method:'PUT',
+      headers:{ 'Authorization':'token '+ghToken, 'Content-Type':'application/json' },
+      body: JSON.stringify({ message:`Add debug image ${fname}`, content: b64 })
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.message || resp.status);
+    }
+
+    // Update manifest
+    await updateManifest(fname);
+    showToast(`Image ${fname} sauvegardée sur GitHub ✓`, true);
+  } catch(e) {
+    showToast('Erreur sauvegarde : '+e.message);
+  }
+}
+
+async function updateManifest(newFile) {
+  const manifestUrl = `https://api.github.com/repos/${ghRepo}/contents/debugPics/manifest.json`;
+  let sha = null;
+
+  // Get existing manifest SHA
+  try {
+    const r = await fetch(manifestUrl, { headers:{ 'Authorization':'token '+ghToken } });
+    if (r.ok) {
+      const data = await r.json();
+      sha = data.sha;
+      const existing = JSON.parse(atob(data.content.replace(/\n/g,'')));
+      if (!existing.images.includes(newFile)) existing.images.push(newFile);
+      const updated = btoa(JSON.stringify(existing, null, 2));
+      await fetch(manifestUrl, {
+        method:'PUT',
+        headers:{ 'Authorization':'token '+ghToken, 'Content-Type':'application/json' },
+        body: JSON.stringify({ message:'Update manifest', content:updated, sha })
+      });
+    }
+  } catch(e) { console.warn('Manifest update failed', e); }
+}
+
+// ══ SETTINGS PANEL ══
+function openSettings() {
+  const list = document.getElementById('stats-list');
+  const entries = Object.entries(feedbacks);
+  if (!entries.length) { list.innerHTML='<p style="color:var(--text3);font-size:12px">Aucun feedback enregistré.</p>'; }
+  else {
+    list.innerHTML = entries.map(([name,f])=>`
+      <div class="stat-entry">
+        <div class="se-img">${name}</div>
+        <div class="se-verdict" style="color:${f.verdict==='valid'?'#1D9E75':'#E24B4A'}">${f.verdict==='valid'?'✓ Correct':'✗ Incorrect'}${f.result?' · conf. '+f.result.confidence+'%':''}</div>
+        ${f.note?`<div class="se-note">${f.note}</div>`:''}
+      </div>`).join('');
+  }
+  document.getElementById('settings-panel').classList.add('open');
+}
+function closeSettings() { document.getElementById('settings-panel').classList.remove('open'); }
+
+// ══ HELPERS ══
+function getColor(id){ if(!colorMap[id]){colorMap[id]=COLORS[colorIdx%COLORS.length];colorIdx++;} return colorMap[id]; }
+function setBadge(t,c){ const b=document.getElementById('dbg-badge'); b.textContent=t; b.className=c; }
+function showLoader(v){ document.getElementById('dbg-loader').style.display=v?'flex':'none'; }
+function showScreen(id){ document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+function showToast(msg, ok=false){ const t=document.getElementById('toast'); t.textContent=msg; t.className=ok?'ok':''; t.style.display='block'; clearTimeout(t._t); t._t=setTimeout(()=>t.style.display='none',3500); }
+
+window.addEventListener('resize', resizeCanvas);
+</script>
+</body>
+</html>
