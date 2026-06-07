@@ -186,7 +186,7 @@
       <a href="debug.html" style="font-size:11px;color:var(--text3);text-decoration:none;display:flex;align-items:center;gap:4px;transition:color 0.15s" onmouseover="this.style.color='var(--text2)'" onmouseout="this.style.color='var(--text3)'">
         🔧 Mode debug
       </a>
-      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">v4.0</span>
+      <span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">v4.1</span>
     </div>
   </div>
 
@@ -390,12 +390,12 @@ function toggleLive() {
   liveMode = !liveMode;
   const btn = document.getElementById('live-btn');
   if (liveMode) {
-    // Un-freeze when going live
     if (isFrozen) unfreeze();
     btn.textContent = '⏸ Pause'; btn.classList.add('danger');
     setBadge('Live','b-live');
-    runDetection();
-    liveTimer = setInterval(runDetection, appMode==='cv' ? 900 : 3800);
+    // Live = CV uniquement, rapide et offline
+    runCV(false, false);
+    liveTimer = setInterval(() => runCV(false, false), 900);
   } else {
     clearInterval(liveTimer);
     btn.textContent = '▶ Live'; btn.classList.remove('danger');
@@ -403,15 +403,36 @@ function toggleLive() {
   }
 }
 
+function stopLive() {
+  if (!liveMode) return;
+  clearInterval(liveTimer); liveMode=false;
+  document.getElementById('live-btn').textContent='▶ Live';
+  document.getElementById('live-btn').classList.remove('danger');
+}
+
 function captureNow() {
-  // Stop live if running
-  if (liveMode) { clearInterval(liveTimer); liveMode=false; document.getElementById('live-btn').textContent='▶ Live'; document.getElementById('live-btn').classList.remove('danger'); }
-  runDetection(true); // true = freeze after
+  stopLive();
+  // Capture = fige l'image, CV d'abord, puis Groq si dispo
+  freezeFrame();
+  runCaptureWithAI();
+}
+
+async function runCaptureWithAI() {
+  // Étape 1 : CV rapide pour un premier résultat immédiat
+  const cvRes = await runCV(true);
+  if (cvRes) { applyResult(cvRes, 'cv'); setConfBar(cvRes.confidence); }
+  // Étape 2 : Groq affine si clé dispo
+  if (apiKey) {
+    await runAI(false); // freeze déjà fait
+  } else if (!cvRes || !cvRes.found) {
+    showToast('Ajoute une clé Groq pour améliorer la détection', true);
+  }
 }
 
 function forceAI() {
-  if (liveMode) { clearInterval(liveTimer); liveMode=false; document.getElementById('live-btn').textContent='▶ Live'; document.getElementById('live-btn').classList.remove('danger'); }
-  runAI(true);
+  stopLive();
+  if (!isFrozen) freezeFrame();
+  runAI(false);
 }
 
 // ══ SNAPSHOT HELPER ══
@@ -443,14 +464,14 @@ async function runDetection(freeze=false) {
     await runAI(freeze);
   } else {
     if (res && res.balls.length>0) { applyResult(res,'cv'); if(freeze) freezeFrame(); showToast('Confiance faible — ajoute une clé Claude pour améliorer', true); }
-    else { showToast('Aucune boule détectée. Ajuste luminosité/contraste.'); }
+    else { showToast('Aucune boule détectée. Ajuste luminosité/contraste ou utilise ⚡ Groq.'); }
   }
 }
 
 // ══ OPENCV ══
 async function runCV(silent=false, freeze=false) {
   if (!cvReady || typeof cv==='undefined') {
-    if(!silent) showToast('OpenCV non chargé. Utilise le mode Claude IA.');
+    if(!silent) showToast('OpenCV non chargé. Utilise le bouton ⚡ Groq.');
     return null;
   }
   if (!silent) { isBusy=true; setBadge('Vision…','b-cv'); showLoader(true); }
