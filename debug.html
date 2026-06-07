@@ -216,12 +216,6 @@
     </div>
 
     <div id="dbg-bottom">
-      <div id="dbg-actions">
-        <button class="abtn" onclick="analyzeCV()">📐 Vision</button>
-        <button class="abtn gold" onclick="analyzeGroq()">⚡ Groq</button>
-        <button class="abtn" onclick="analyzeBoth()">🔀 Les deux</button>
-        <button class="abtn" onclick="saveCurrent()" id="save-btn" title="Sauvegarder depuis caméra">📷 +</button>
-      </div>
 
       <div id="feedback-row">
         <button class="fb-btn fb-valid"   id="btn-valid"   onclick="setFeedback('valid')">✓ Correct</button>
@@ -237,7 +231,7 @@
           <span id="dbg-res-title">Classement</span>
           <span id="dbg-source-tag"></span>
         </div>
-        <div id="dbg-ball-list"><div id="dbg-empty">Analyse une image pour voir le classement</div></div>
+        <div id="dbg-ball-list"><div id="dbg-empty">Chargement de l'image…</div></div>
       </div>
 
       <div id="stats-bar">
@@ -367,28 +361,57 @@ async function startDebug() {
 // ══ IMAGE NAVIGATION ══
 function loadImage(idx) {
   if (idx < 0 || idx >= images.length) return;
-  curIdx     = idx;
-  curResult  = null;
+  curIdx      = idx;
+  curResult   = null;
   curFeedback = feedbacks[images[idx].name]?.verdict || null;
 
+  setBadge('Chargement…', 'b-analyzing');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('dbg-ball-list').innerHTML = '<div id="dbg-empty">Chargement…</div>';
+  document.getElementById('dbg-source-tag').style.display = 'none';
+  updateFeedbackUI();
+  document.getElementById('fb-note').value = feedbacks[images[idx].name]?.note || '';
+
+  // crossOrigin indispensable pour que canvas puisse lire l'image (fix CORS)
+  img.crossOrigin = 'anonymous';
   img.onload = () => {
     resizeCanvas();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    updateFeedbackUI();
-    document.getElementById('dbg-ball-list').innerHTML = '<div id="dbg-empty">Analyse une image pour voir le classement</div>';
-    document.getElementById('dbg-source-tag').style.display = 'none';
-    setBadge('Prêt', 'b-idle');
+    setBadge('Analyse…', 'b-analyzing');
+    // Lancer l'analyse automatiquement
+    autoAnalyze();
+  };
+  img.onerror = () => {
+    setBadge('Erreur', 'b-idle');
+    showToast('Impossible de charger l\'image — vérifie le manifest et le nom du fichier.');
+    document.getElementById('dbg-ball-list').innerHTML = '<div id="dbg-empty" style="color:var(--red)">Erreur de chargement</div>';
   };
   img.src = images[idx].url + '?t=' + Date.now();
 
   document.getElementById('img-counter').textContent = `${idx+1} / ${images.length}`;
   document.getElementById('prev-btn').disabled = (idx === 0);
   document.getElementById('next-btn').disabled = (idx === images.length - 1);
-  document.getElementById('fb-note').value = feedbacks[images[idx].name]?.note || '';
 }
 
 function navImg(dir) {
   loadImage(curIdx + dir);
+}
+
+// Analyse automatique : CV d'abord, Groq si clé dispo
+async function autoAnalyze() {
+  // Étape 1 — CV rapide
+  const cvRes = await runCV_silent();
+  if (cvRes && cvRes.found) {
+    curResult = cvRes;
+    renderResults(cvRes, 'cv');
+    drawOverlay(cvRes);
+  }
+  // Étape 2 — Groq affine si clé dispo
+  if (claudeKey) {
+    await analyzeGroq();
+  } else if (!cvRes || !cvRes.found) {
+    setBadge('Prêt', 'b-idle');
+    document.getElementById('dbg-ball-list').innerHTML = '<div id="dbg-empty">Aucune boule détectée.<br>Ajoute une clé Groq dans config.json</div>';
+  }
 }
 
 function resizeCanvas() {
@@ -397,24 +420,17 @@ function resizeCanvas() {
 }
 
 // ══ ANALYSE ══
-async function analyzeCV() {
-  if (!cvReady || typeof cv === 'undefined') { showToast('OpenCV non chargé.'); return; }
-  setBadge('Vision…', 'b-analyzing');
-  showLoader(true);
-
+// Version silencieuse pour l'auto-analyse (pas de toast, pas de loader)
+async function runCV_silent() {
+  if (!cvReady || typeof cv === 'undefined') return null;
   try {
     const tmp = imageToCanvas();
-    const sens = 5;
-    const result = detectCircles(tmp, sens);
-    if (result) { curResult = result; renderResults(result, 'cv'); drawOverlay(result); setBadge('Vision', 'b-cv'); }
-    else { showToast('Aucun cercle détecté. Essaie Groq.'); setBadge('Prêt','b-idle'); }
-  } catch(e) { showToast('Erreur CV : '+e.message); setBadge('Prêt','b-idle'); }
-
-  showLoader(false);
+    return detectCircles(tmp, 5);
+  } catch(e) { return null; }
 }
 
 async function analyzeGroq() {
-  if (!claudeKey) { showToast('Aucune clé Groq configurée.'); return; }
+  if (!claudeKey) { showToast('Aucune clé Groq dans config.json'); setBadge('Prêt','b-idle'); return; }
   setBadge('Groq…', 'b-analyzing');
   showLoader(true);
 
@@ -466,16 +482,6 @@ Si rien : { "found": false, "note": "..." }`}
   } catch(e) { showToast('Erreur Groq : '+e.message); setBadge('Prêt','b-idle'); }
 
   showLoader(false);
-}
-
-async function analyzeBoth() {
-  await analyzeCV();
-  const cvResult = curResult;
-  const cvConf   = cvResult ? cvResult.confidence : 0;
-  if (cvConf < 0.55 && claudeKey) {
-    showToast('Vision insuffisante (conf: ' + Math.round(cvConf*100) + '%) — passage à Groq', true);
-    await analyzeGroq();
-  }
 }
 
 // ══ OPENCV DETECTION ══
@@ -628,66 +634,6 @@ function clearFeedbacks() {
   updateStats();
   updateFeedbackUI();
   showToast('Feedbacks effacés', true);
-}
-
-// ══ SAVE IMAGE VIA GITHUB API ══
-async function saveCurrent() {
-  if (!ghToken || !ghRepo) { showToast('Token GitHub et nom du repo requis dans les réglages.'); return; }
-
-  // Find next imgN number
-  const nums = images.map(i => {
-    const m = i.name.match(/^img(\d+)\./);
-    return m ? parseInt(m[1]) : 0;
-  });
-  const nextN = (nums.length ? Math.max(...nums) : 0) + 1;
-  const fname = `img${nextN}.jpg`;
-
-  // Capture from main app video — for debug we just re-save current image
-  showToast('Préparation de la capture…', true);
-  try {
-    // Convert current image to base64
-    const tmp = imageToCanvas();
-    const b64 = tmp.toDataURL('image/jpeg', 0.85).split(',')[1];
-
-    const apiUrl = `https://api.github.com/repos/${ghRepo}/contents/debugPics/${fname}`;
-    const resp = await fetch(apiUrl, {
-      method:'PUT',
-      headers:{ 'Authorization':'token '+ghToken, 'Content-Type':'application/json' },
-      body: JSON.stringify({ message:`Add debug image ${fname}`, content: b64 })
-    });
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.message || resp.status);
-    }
-
-    // Update manifest
-    await updateManifest(fname);
-    showToast(`Image ${fname} sauvegardée sur GitHub ✓`, true);
-  } catch(e) {
-    showToast('Erreur sauvegarde : '+e.message);
-  }
-}
-
-async function updateManifest(newFile) {
-  const manifestUrl = `https://api.github.com/repos/${ghRepo}/contents/debugPics/manifest.json`;
-  let sha = null;
-
-  // Get existing manifest SHA
-  try {
-    const r = await fetch(manifestUrl, { headers:{ 'Authorization':'token '+ghToken } });
-    if (r.ok) {
-      const data = await r.json();
-      sha = data.sha;
-      const existing = JSON.parse(atob(data.content.replace(/\n/g,'')));
-      if (!existing.images.includes(newFile)) existing.images.push(newFile);
-      const updated = btoa(JSON.stringify(existing, null, 2));
-      await fetch(manifestUrl, {
-        method:'PUT',
-        headers:{ 'Authorization':'token '+ghToken, 'Content-Type':'application/json' },
-        body: JSON.stringify({ message:'Update manifest', content:updated, sha })
-      });
-    }
-  } catch(e) { console.warn('Manifest update failed', e); }
 }
 
 // ══ SETTINGS PANEL ══
